@@ -4,11 +4,11 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/users');
 const Blacklist = require('../models/blacklist');
-const { protect } = require('../middleware/auth'); // Ensure this path is correct
+const { protect } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ──── LOGIN ────────────────────────────────────────────────
+// ──── LOGIN (With Brute Force Protection) ──────────────────
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -17,20 +17,49 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ email }).select('+passwordHash');
+    const user = await User.findOne({ email: email.toLowerCase() })
+      .select('+passwordHash +loginAttempts +lockUntil');
 
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
+
+    // Check if account is locked
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+      const remainingMinutes = Math.ceil((user.lockUntil - Date.now()) / 60000);
+      return res.status(403).json({ 
+        success: false, 
+        error: `Account locked. Try again in ${remainingMinutes} minutes.` 
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+
+    if (!isMatch) {
+      user.loginAttempts += 1;
+      if (user.loginAttempts >= 5) {
+        user.lockUntil = Date.now() + 30 * 60 * 1000; 
+      }
+      await user.save({ validateBeforeSave: false });
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    // Success: Reset counters
+    user.loginAttempts = 0;
+    user.lockUntil = undefined;
+    user.lastLoginAt = Date.now();
+    await user.save({ validateBeforeSave: false });
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
     res.json({
       success: true,
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+      user: user.toJSON() // Use the helper method from your model
     });
   } catch (err) {
+    console.error('Login Error:', err.message);
+    // Explicitly send response instead of using next(err)
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -56,7 +85,7 @@ router.post('/register', async (req, res) => {
     res.status(201).json({
       success: true,
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+      user: user.toJSON()
     });
   } catch (err) {
     if (err.code === 11000) return res.status(409).json({ success: false, error: 'Email already in use' });
@@ -66,15 +95,10 @@ router.post('/register', async (req, res) => {
 
 // ──── GET CURRENT USER ─────────────────────────────────────
 router.get('/me', protect, async (req, res) => {
+  // Since 'protect' middleware attaches the user to req.user
   res.json({
     success: true,
-    user: {
-      id: req.user._id,
-      name: req.user.name,
-      email: req.user.email,
-      role: req.user.role,
-      status: req.user.status
-    }
+    user: req.user // .toJSON() is called automatically by Express
   });
 });
 
@@ -85,19 +109,24 @@ router.post('/forgot-password', async (req, res) => {
 
   try {
     const user = await User.findOne({ email: email.trim().toLowerCase() });
+    
     if (!user) {
       return res.json({ success: true, message: 'If the email exists, a reset link has been sent' });
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.passwordResetExpires = Date.now() + 3600000; // 1 hour
+    user.passwordResetExpires = Date.now() + 3600000; 
 
-    await user.save();
-    console.log('✅ Reset Token:', resetToken);
+    await user.save({ validateBeforeSave: false });
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('DEBUG ✅ Reset Token:', resetToken);
+    }
 
     res.json({ success: true, message: 'If the email exists, a reset link has been sent' });
   } catch (err) {
+    console.log("FULL ERROR STACK:", err.stack); // This will tell you the exact line number
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -133,15 +162,16 @@ router.patch('/reset-password/:token', async (req, res) => {
 // ──── LOGOUT ───────────────────────────────────────────────
 router.post('/logout', protect, async (req, res) => {
   try {
-    // protect middleware ensures authorization header exists and is valid
     const token = req.headers.authorization.split(' ')[1];
-    await Blacklist.create({ token });
+    await Blacklist.create({ 
+      token, 
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) 
+    });
 
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Logout failed' });
   }
 });
-
 
 module.exports = router;
