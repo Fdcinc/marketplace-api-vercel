@@ -41,8 +41,7 @@ app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
     message: "Marketplace API is Live",
-    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
-    environment: process.env.NODE_ENV || 'development'
+    dbStatus: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected"
   });
 });
 
