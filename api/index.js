@@ -38,10 +38,11 @@ app.use('/api/', limiter);
 
 // Base route for a clean status check
 app.get('/', (req, res) => {
-  res.status(200).json({ 
-    success: true, 
-    message: 'Marketplace API is Live',
-    env: process.env.NODE_ENV || 'development'
+  res.status(200).json({
+    success: true,
+    message: "Marketplace API is Live",
+    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
