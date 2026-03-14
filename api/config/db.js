@@ -1,26 +1,64 @@
-// src/config/db.js
+// config/db.js
 const mongoose = require('mongoose');
 
-const connectDB = async () => {
-  try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-      maxPoolSize: 10,
-    });
+const MONGODB_URI = process.env.MONGODB_URI;
 
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+if (!MONGODB_URI) {
+  throw new Error('Please define MONGODB_URI environment variable');
+}
 
-    mongoose.connection.on('disconnected', () => {
-      console.log('MongoDB disconnected — will attempt to reconnect...');
-    });
+// Cache the connection across serverless function invocations
+let cached = global.mongoose;
 
-    mongoose.connection.on('error', (err) => {
-      console.error('MongoDB connection error:', err.message);
-    });
-  } catch (err) {
-    console.error('MongoDB initial connection failed:', err.message);
-    // Do NOT process.exit() here — let the server stay alive
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
+async function connectDB() {
+  if (cached.conn) {
+    console.log('Using cached database connection');
+    return cached.conn;
   }
-};
+
+  if (!cached.promise) {
+    // Log the connection string (with password masked) for debugging
+    const maskedUri = MONGODB_URI.replace(/:([^@]+)@/, ':****@');
+    console.log('Creating new database connection to:', maskedUri);
+
+    const opts = {
+      bufferCommands: false,
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      family: 4, // Force IPv4 (helps with some Atlas issues)
+    };
+
+    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
+      console.log('MongoDB connected successfully');
+      mongoose.connection.on('disconnected', () => {
+        console.log('MongoDB disconnected — will attempt to reconnect...');
+      });
+      mongoose.connection.on('error', (err) => {
+        console.error('MongoDB connection error:', err.message);
+      });
+      return mongoose;
+    });
+  }
+
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null; // Allow retry on next request
+    console.error('Full MongoDB connection error:', {
+      message: e.message,
+      name: e.name,
+      code: e.code,
+      stack: e.stack,
+    });
+    throw e; // Re-throw so the route can handle it
+  }
+
+  return cached.conn;
+}
 
 module.exports = connectDB;

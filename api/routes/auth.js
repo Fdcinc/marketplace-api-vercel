@@ -27,6 +27,7 @@ router.post('/register', async (req, res) => {
   }
 
   try {
+    await connectDB();
     // Hash password BEFORE creating user
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(password, salt);
@@ -45,6 +46,7 @@ router.post('/register', async (req, res) => {
       user: user.toJSON(), // or select fields manually if you prefer
     });
   } catch (err) {
+    console.log('Route-level DB error:', err);
     if (err.code === 11000) {
       return sendError(res, 409, 'Email already in use');
     }
@@ -62,6 +64,7 @@ router.post('/login', async (req, res) => {
   }
 
   try {
+    await connectDB();
     const user = await User.findOne({ email: email.trim().toLowerCase() })
       .select('+passwordHash +loginAttempts +lockUntil');
 
