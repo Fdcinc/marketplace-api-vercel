@@ -1,31 +1,29 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/users');
 const Blacklist = require('../models/blacklist');
-const connectDB = require('../config/db'); // IMPORTED
+const connectDB = require('../config/db');
 
 const protect = async (req, res, next) => {
   try {
-    await connectDB(); // ENSURE CONNECTION
+    await connectDB(); // Critical for serverless
 
     let token = req.headers.authorization?.startsWith('Bearer') 
-      ? req.headers.authorization.split(' ')[1] 
-      : null;
+                ? req.headers.authorization.split(' ')[1] 
+                : null;
 
-    if (!token) return res.status(401).json({ success: false, error: 'Not authorized' });
+    if (!token) return res.status(401).json({ error: 'Not authorized' });
 
     const isBlacklisted = await Blacklist.findOne({ token });
-    if (isBlacklisted) return res.status(401).json({ success: false, error: 'Token invalidated' });
+    if (isBlacklisted) return res.status(401).json({ error: 'Token logged out' });
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = await User.findById(decoded.id).select('-passwordHash');
 
-    if (!req.user || req.user.status !== 'active') {
-      return res.status(401).json({ success: false, error: 'User unavailable or inactive' });
-    }
+    if (!req.user) return res.status(401).json({ error: 'User not found' });
 
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, error: 'Authentication failed' });
+    res.status(401).json({ error: 'Authentication failed' });
   }
 };
 

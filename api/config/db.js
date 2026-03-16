@@ -8,20 +8,12 @@ async function connectDB() {
   if (cached.conn) return cached.conn;
 
   if (!cached.promise) {
-    const opts = {
+    cached.promise = mongoose.connect(MONGODB_URI, {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 10000, // Increased for serverless cold starts
-    };
-
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((m) => m);
+    }).then((m) => m);
   }
-
-  try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
+  
+  cached.conn = await cached.promise;
   return cached.conn;
 }
 
