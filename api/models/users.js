@@ -11,10 +11,19 @@ const UserSchema = new mongoose.Schema({
   lockUntil: { type: Date }
 }, { timestamps: true });
 
-UserSchema.pre('save', async function (next) {
-  if (!this.isModified('passwordHash')) return next();
-  this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
-  next();
+// ──── PRE-SAVE HOOK (Fixed) ────
+UserSchema.pre('save', async function () {
+  // 1. Only run if password was modified
+  if (!this.isModified('passwordHash')) return;
+
+  try {
+    const salt = await bcrypt.genSalt(12);
+    this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
+    // Notice: NO next() call here. 
+    // Mongoose knows to wait because the function is async.
+  } catch (err) {
+    throw new Error(`Encryption failed: ${err.message}`);
+  }
 });
 
 module.exports = mongoose.models.User || mongoose.model('User', UserSchema);
