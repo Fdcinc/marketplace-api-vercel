@@ -4,8 +4,8 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const express = require('express');
 const cors = require('cors');
-const connectDB = require('./config/db'); // Points to api/config/db.js
-const authRoutes = require('./routes/auth'); // Points to api/routes/auth.js
+const connectDB = require('./v1/config/db'); // Points to api/config/db.js
+const authRoutes = require('./v1/routes/auth'); // Points to api/routes/auth.js
 
 const app = express();
 app.use(cors());
@@ -14,7 +14,7 @@ app.use(express.json());
 // Initialize DB
 connectDB();
 
-app.use('/api/auth', authRoutes);
+app.use('/api/v1/auth', authRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: "Marketplace API is running locally" });
