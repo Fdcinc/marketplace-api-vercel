@@ -64,23 +64,39 @@ const UserSchema = new mongoose.Schema({
 /**
  * PRE-SAVE HOOK
  */
-UserSchema.pre('save', async function () {
-  if (!this.isModified('passwordHash')) return;
+UserSchema.pre('save', async function (next) { // Add next here
+  if (!this.isModified('passwordHash')) return next();
 
   try {
-    if (/^\$2[ayb]\$.{56}$/.test(this.passwordHash)) return;
+    // Regex check to see if it's already a bcrypt hash
+    if (/^\$2[ayb]\$.{56}$/.test(this.passwordHash)) return next();
 
     const salt = await bcrypt.genSalt(12);
     this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
+    next();
   } catch (err) {
-    throw new Error(`Encryption failed: ${err.message}`);
+    next(new Error(`Encryption failed: ${err.message}`));
   }
 });
+
+/**
+ * VIRTUALS
+ * This makes the frontend happy by providing 'id' instead of just '_id'
+ */
+UserSchema.virtual('id').get(function() {
+  return this._id.toHexString();
+});
+
+// Ensure virtuals are included when converting document to JSON/Object
+UserSchema.set('toJSON', { virtuals: true });
+UserSchema.set('toObject', { virtuals: true });
 
 /**
  * HELPER METHODS
  */
 UserSchema.methods.comparePassword = async function (candidatePassword) {
+  // candidatePassword = plain text from user login
+  // this.passwordHash = hashed string from DB
   return bcrypt.compare(candidatePassword, this.passwordHash);
 };
 
