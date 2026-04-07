@@ -23,7 +23,7 @@ exports.register = async (req, res) => {
     const user = await User.create({
       name,
       email: email.toLowerCase().trim(),
-      passwordHash: password // Pre-save hook hashes this
+      passwordHash: password 
     });
 
     const token = signToken(user._id);
@@ -85,11 +85,24 @@ exports.logout = async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(400).json({ success: false, error: 'No token found' });
 
-    // Add current token to blacklist
     await Blacklist.create({ token });
 
     res.status(200).json({ success: true, message: 'Logged out successfully' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Logout failed' });
+  }
+};
+
+// ──── ADMIN: GET ALL USERS (CRITICAL: Added this to fix the crash) ────
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select('-passwordHash');
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch users' });
   }
 };
