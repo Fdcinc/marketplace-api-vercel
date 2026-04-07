@@ -64,18 +64,22 @@ const UserSchema = new mongoose.Schema({
 /**
  * PRE-SAVE HOOK
  */
-UserSchema.pre('save', async function (next) { // Add next here
-  if (!this.isModified('passwordHash')) return next();
+UserSchema.pre('save', async function () {
+  // 1. Only hash if password was modified
+  if (!this.isModified('passwordHash')) return;
 
   try {
-    // Regex check to see if it's already a bcrypt hash
-    if (/^\$2[ayb]\$.{56}$/.test(this.passwordHash)) return next();
+    // 2. Skip if it's already a bcrypt hash (safety check)
+    if (/^\$2[ayb]\$.{56}$/.test(this.passwordHash)) return;
 
+    // 3. Hash the password
     const salt = await bcrypt.genSalt(12);
     this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
-    next();
+    
+    // In async hooks, you don't need next(), 
+    // just let the function finish.
   } catch (err) {
-    next(new Error(`Encryption failed: ${err.message}`));
+    throw new Error(`Encryption failed: ${err.message}`);
   }
 });
 
