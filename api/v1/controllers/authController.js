@@ -106,3 +106,59 @@ exports.getAllUsers = async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to fetch users' });
   }
 };
+
+// ──── UPDATE SELF ────
+exports.updateMe = async (req, res) => {
+  try {
+    // 1. Prevent password updates through this route
+    if (req.body.passwordHash) {
+      return res.status(400).json({ success: false, error: 'This route is not for password updates.' });
+    }
+
+    // 2. Filter out unwanted fields (don't let users make themselves admins)
+    const allowedUpdates = ['name', 'email', 'interestedCategoryIds'];
+    const updates = {};
+    Object.keys(req.body).forEach(key => {
+      if (allowedUpdates.includes(key)) updates[key] = req.body[key];
+    });
+
+    const user = await User.findByIdAndUpdate(req.user.id, updates, {
+      new: true,
+      runValidators: true
+    }).select('-passwordHash');
+
+    res.status(200).json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ──── DELETE SELF (Soft Delete) ────
+exports.deleteMe = async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, { 
+        status: 'inactive', 
+        deletedAt: new Date() 
+    });
+
+    res.status(204).json({ success: true, data: null });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ──── ADMIN: UPDATE ANY USER ────
+exports.updateUser = async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true
+    }).select('-passwordHash');
+
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    res.status(200).json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
