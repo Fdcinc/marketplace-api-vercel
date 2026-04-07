@@ -1,55 +1,72 @@
-// src/scripts/create-admin.js
-// src/scripts/create-admin.js
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../../src/.env') });
-
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
 const User = require('../models/users');
+const fs = require('fs');
+
+// 1. Improved .env loading logic
+const rootEnv = path.join(process.cwd(), '.env');
+if (fs.existsSync(rootEnv)) {
+  require('dotenv').config({ path: rootEnv });
+} else {
+  // Fallback for different execution contexts
+  require('dotenv').config({ path: path.join(__dirname, '../../../.env') });
+}
 
 const ADMIN_EMAIL = 'nick@marketplace.com';
 const NEW_PASSWORD = 'admin2026test';
 
 async function resetAdminPassword() {
   try {
-    console.log('Current working directory:', process.cwd());
-    console.log('Loaded .env path:', process.env.MONGODB_URI ? 'SUCCESS' : 'FAILED - MONGODB_URI undefined');
-    
     if (!process.env.MONGODB_URI) {
-      throw new Error('MONGODB_URI is undefined. Check src/.env file exists and contains MONGODB_URI=...');
+      throw new Error('MONGODB_URI is undefined. Check your .env file at the root.');
     }
 
-    console.log('Connecting to DB...');
+    console.log('Connecting to MongoDB...');
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log('Connected to MongoDB');
+    console.log('✅ Connected.');
 
-    const hashedPassword = await bcrypt.hash(NEW_PASSWORD, 12);
+    // 2. Find OR Create the Admin
+    let user = await User.findOne({ email: ADMIN_EMAIL });
 
-    const result = await User.updateOne(
-      { email: ADMIN_EMAIL },
-      {
-        $set: {
-          passwordHash: hashedPassword,
-          updatedAt: new Date(),
-          status: 'active',
-          role: 'superadmin'
-        }
-      }
-    );
-
-    if (result.matchedCount === 0) {
-      console.log(`No user found with email: ${ADMIN_EMAIL}`);
-    } else if (result.modifiedCount === 1) {
-      console.log(`Password reset SUCCESS for ${ADMIN_EMAIL}`);
-      console.log('New password:', NEW_PASSWORD);
-      console.log('Login now → POST http://localhost:5000/api/auth/login');
+    if (!user) {
+      console.log(`Creating NEW admin account for ${ADMIN_EMAIL}...`);
+      user = new User({ 
+        email: ADMIN_EMAIL, 
+        name: 'Nick Admin' 
+      });
     } else {
-      console.log('Update did not change anything');
+      console.log(`Found existing user ${ADMIN_EMAIL}. Updating credentials...`);
     }
 
+    // 3. Update Fields
+    // IMPORTANT: We set plain text. The Model's pre-save hook 
+    // transforms this into a 60-character bcrypt hash.
+    user.passwordHash = NEW_PASSWORD; 
+    user.role = 'superadmin'; // Matches your validator enum
+    user.status = 'active';   // Matches your validator enum
+    user.emailVerified = true;
+    user.schemaVersion = 2;
+
+    // 4. Save to Database
+    // This triggers the pre-save hook in api/v1/models/users.js
+    await user.save();
+
+    console.log('\n' + '='.repeat(40));
+    console.log('🚀 ADMIN STATUS UPDATED SUCCESSFULLY');
+    console.log(`Email:    ${ADMIN_EMAIL}`);
+    console.log(`Password: ${NEW_PASSWORD}`);
+    console.log(`Role:     ${user.role}`);
+    console.log('='.repeat(40));
+
+    // Cleanly close connection
+    await mongoose.disconnect();
     process.exit(0);
   } catch (err) {
-    console.error('Error:', err.message);
+    console.error('\n❌ SCRIPT ERROR:', err.message);
+    // Suggest the fix if the validation error persists
+    if (err.message.includes('passwordHash')) {
+      console.log('\n💡 TIP: Ensure you removed "minlength: 60" from the passwordHash field in api/v1/models/users.js');
+    }
     process.exit(1);
   }
 }

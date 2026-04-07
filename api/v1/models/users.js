@@ -2,28 +2,86 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
 const UserSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  passwordHash: { type: String, required: true, select: false },
-  status: { type: String, enum: ['active', 'suspended'], default: 'active' },
-  role: { type: String, default: 'customer' },
-  loginAttempts: { type: Number, default: 0 },
-  lockUntil: { type: Date }
-}, { timestamps: true });
+  name: { type: String, trim: true },
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true, 
+    lowercase: true, 
+    trim: true,
+    match: [/^[^@]+@[^@]+\.[^@]+$/, 'Please provide a valid email address']
+  },
+  passwordHash: { 
+    type: String, 
+    required: true, 
+    select: false 
+  },
+  
+  // ──── MARKETPLACE DATA ────
+  interestedCategoryIds: [{ 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Category' 
+  }],
+  addresses: { 
+    type: [Object], 
+    default: [] 
+  },
 
-// ──── PRE-SAVE HOOK (Fixed) ────
+  // ──── AUTHENTICATION & SECURITY ────
+  emailVerified: { type: Boolean, default: false },
+  twoFactorEnabled: { type: Boolean, default: false },
+  twoFactorSecret: { type: String, select: false },
+  recoveryCodes: { type: [String], select: false },
+  
+  // ──── ACCOUNT STATUS & ROLES ────
+  status: { 
+    type: String, 
+    enum: ['active', 'inactive', 'suspended', 'deleted'], 
+    default: 'active' 
+  },
+  role: { 
+    type: String, 
+    // HERE IS THE VENDOR CHANGE: replaced 'seller' with 'vendor'
+    enum: ['customer', 'vendor', 'admin', 'superadmin'], 
+    default: 'customer' 
+  },
+  
+  // ──── AUDIT & RECOVERY ────
+  schemaVersion: { type: Number, default: 2, min: 1 },
+  lastLoginAt: { type: Date },
+  deletedAt: { type: Date, default: null },
+  passwordResetToken: { type: String, select: false },
+  passwordResetExpires: { type: Date, select: false },
+  
+  // ──── SECURITY RATE-LIMITING ────
+  loginAttempts: { type: Number, default: 0, min: 0 },
+  lockUntil: { type: Date }
+}, { 
+  timestamps: true,
+  versionKey: '__v' 
+});
+
+/**
+ * PRE-SAVE HOOK
+ */
 UserSchema.pre('save', async function () {
-  // 1. Only run if password was modified
   if (!this.isModified('passwordHash')) return;
 
   try {
+    if (/^\$2[ayb]\$.{56}$/.test(this.passwordHash)) return;
+
     const salt = await bcrypt.genSalt(12);
     this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
-    // Notice: NO next() call here. 
-    // Mongoose knows to wait because the function is async.
   } catch (err) {
     throw new Error(`Encryption failed: ${err.message}`);
   }
 });
+
+/**
+ * HELPER METHODS
+ */
+UserSchema.methods.comparePassword = async function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.passwordHash);
+};
 
 module.exports = mongoose.models.User || mongoose.model('User', UserSchema);

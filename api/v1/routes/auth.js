@@ -59,6 +59,18 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// ──── Me ────
+router.get('/me', protect, async (req, res) => {
+  try {
+    await connectDB();
+    const user = await User.findById(req.user.id).select('-passwordHash');
+    res.json({ success: true, user });
+  } catch (err) {
+    console.error("ME ERROR:", err);
+    res.status(500).json({ success: false, error: 'Failed to fetch user data', details: err.message });
+  }
+});
+
 // ──── LOGIN ────
 router.post('/login', async (req, res) => {
   try {
