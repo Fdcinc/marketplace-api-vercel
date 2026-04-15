@@ -8,7 +8,7 @@ const verifyGateway = (req, res, next) => {
   const gatewaySecret = req.headers['x-platform-secret'];
 
   // This must match exactly what you put in kong-copy.yaml
-  if (gatewaySecret !== 'my-marketplace-private-key-123') {
+  if (gatewaySecret !== process.env.GATEWAY_SECRET) {
     return res.status(403).json({ 
       success: false, 
       error: 'Access Denied: Direct access is forbidden. Please use the API Gateway.' 
