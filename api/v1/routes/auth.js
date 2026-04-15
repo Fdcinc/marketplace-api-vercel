@@ -1,18 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const { protect, restrictTo } = require('../middleware/auth');
+const { protect, restrictTo, verifyGateway } = require('../middleware/auth'); // Added verifyGateway
+
+// 🔒 GATEWAY PROTECTION
+// This applies to ALL routes below. If the request doesn't come from Kong, it stops here.
+router.use(verifyGateway);
 
 // ──── PUBLIC ROUTES ────
+// (Still public to users, but "private" to the internet because they must pass through Kong)
 router.post('/register', authController.register);
 router.post('/login', authController.login);
 
-// ──── PROTECTED ROUTES ────
+// ──── PROTECTED ROUTES (Requires Gateway + JWT)
 router.post('/logout', protect, authController.logout);
 router.get('/me', protect, authController.getMe);
 
-// ──── ADMIN ONLY ROUTES ────
-// Fixed: Changed userController to authController
+// ──── ADMIN ONLY ROUTES
 router.get('/all-users', protect, restrictTo('admin', 'superadmin'), authController.getAllUsers);
 
 // ──── USER SELF-MANAGEMENT ────
@@ -23,7 +27,6 @@ router.delete('/delete-me', protect, authController.deleteMe);
 router.route('/all-users/:id')
   .patch(protect, restrictTo('admin', 'superadmin'), authController.updateUser)
   .get(protect, restrictTo('admin', 'superadmin'), async (req, res) => {
-      // Small helper to get one specific user by ID
       const user = await User.findById(req.params.id).select('-passwordHash');
       res.json({ success: true, user });
   });

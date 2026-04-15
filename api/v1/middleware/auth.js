@@ -3,9 +3,23 @@ const User = require('../models/users');
 const Blacklist = require('../models/blacklist');
 const connectDB = require('../config/db');
 
+// NEW: Gateway Security Middleware
+const verifyGateway = (req, res, next) => {
+  const gatewaySecret = req.headers['x-platform-secret'];
+
+  // This must match exactly what you put in kong-copy.yaml
+  if (gatewaySecret !== 'my-marketplace-private-key-123') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Access Denied: Direct access is forbidden. Please use the API Gateway.' 
+    });
+  }
+  next();
+};
+
 const protect = async (req, res, next) => {
   try {
-    await connectDB(); // Critical for serverless
+    await connectDB(); 
 
     let token = req.headers.authorization?.startsWith('Bearer') 
                 ? req.headers.authorization.split(' ')[1] 
@@ -39,4 +53,5 @@ const restrictTo = (...roles) => {
     };
   };
 
-module.exports = { protect, restrictTo };
+// Add verifyGateway to your exports
+module.exports = { protect, restrictTo, verifyGateway };
