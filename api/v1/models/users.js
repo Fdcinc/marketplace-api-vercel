@@ -45,6 +45,14 @@ const UserSchema = new mongoose.Schema({
     enum: ['customer', 'vendor', 'admin', 'superadmin'], 
     default: 'customer' 
   },
+
+  // ──── BILLING & METERING ────
+  stripeCustomerId: { 
+    type: String, 
+    unique: true, 
+    sparse: true // Allows multiple users to have 'null' while ensuring IDs stay unique
+  },
+  stripeSubscriptionId: { type: String },
   
   // ──── AUDIT & RECOVERY ────
   schemaVersion: { type: Number, default: 2, min: 1 },

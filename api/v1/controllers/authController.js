@@ -2,6 +2,8 @@ const User = require('../models/users');
 const Blacklist = require('../models/blacklist');
 const jwt = require('jsonwebtoken');
 
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Initialize Stripe with your secret key
+
 /**
  * Helper to generate JWT
  */
@@ -16,23 +18,47 @@ exports.register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
+    // 1. Validation
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, error: 'Missing fields' });
     }
 
+    // 2. Create Stripe Customer FIRST
+    // (If this fails, we don't want a user in our DB without a billable account)
+    const customer = await stripe.customers.create({
+      email: email.toLowerCase().trim(),
+      name: name,
+      metadata: { source: 'marketplace_api' }
+    });
+
+    // 3. Subscribe them to the Metered Price
+    await stripe.subscriptions.create({
+      customer: customer.id,
+      items: [{ price: process.env.STRIPE_PRICE_ID }],
+    });
+
+    // 4. Create User in MongoDB with the Stripe Customer ID
     const user = await User.create({
       name,
       email: email.toLowerCase().trim(),
-      passwordHash: password 
+      passwordHash: password,
+      stripeCustomerId: customer.id // This matches the field we added to your schema
     });
 
+    // 5. Generate Token and Response
     const token = signToken(user._id);
     const userResponse = user.toObject();
     delete userResponse.passwordHash;
 
     res.status(201).json({ success: true, token, user: userResponse });
+
   } catch (err) {
-    if (err.code === 11000) return res.status(400).json({ success: false, error: 'Email already exists' });
+    // Check for Duplicate Email
+    if (err.code === 11000) {
+        return res.status(400).json({ success: false, error: 'Email already exists' });
+    }
+    
+    // Stripe specific errors or other logic errors
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -160,5 +186,25 @@ exports.updateUser = async (req, res) => {
     res.status(200).json({ success: true, user });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// Add this middleware to track an API call
+exports.trackUsage = async (req, res, next) => {
+  try {
+    // Only track if a user is logged in and has a Stripe ID
+    if (req.user && req.user.stripeCustomerId) {
+      await stripe.billing.meterEvents.create({
+        event_name: 'api_request', // This must match the Event Name in your Stripe Meter
+        payload: {
+          stripe_customer_id: req.user.stripeCustomerId,
+          value: '1',
+        },
+      });
+    }
+    next();
+  } catch (err) {
+    console.error('Usage tracking failed:', err.message);
+    next(); // We don't block the request if billing ping fails
   }
 };
