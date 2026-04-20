@@ -88,8 +88,6 @@ exports.trackUsage = async (req, res, next) => {
         },
       });
       console.log(`✅ Usage tracked for: ${req.user.stripeCustomerId}`);
-    } else {
-      console.log("⚠️ Usage NOT tracked: Missing stripeCustomerId");
     }
     next();
   } catch (err) {
