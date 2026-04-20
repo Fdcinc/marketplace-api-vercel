@@ -160,3 +160,33 @@ exports.deleteMe = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+exports.getUsage = async (req, res) => {
+  try {
+    // 1. Get the customer's upcoming invoice from Stripe
+    const upcomingInvoice = await stripe.invoices.retrieveUpcoming({
+      customer: req.user.stripeCustomerId,
+    });
+
+    // 2. Extract the specific "Metered" line item
+    const usageLine = upcomingInvoice.lines.data.find(
+      (line) => line.period.start === upcomingInvoice.next_payment_attempt
+    ) || upcomingInvoice.lines.data[0];
+
+    res.json({
+      success: true,
+      data: {
+        amount_due: upcomingInvoice.amount_remaining / 100, // Convert cents to Euros
+        currency: upcomingInvoice.currency.toUpperCase(),
+        quantity: usageLine.quantity, // This is your '4' or '5' units
+        period_end: new Date(upcomingInvoice.next_payment_attempt * 1000).toLocaleDateString(),
+      }
+    });
+  } catch (err) {
+    // If no usage exists yet, Stripe might throw an error; handle it gracefully
+    res.status(200).json({ 
+      success: true, 
+      data: { amount_due: 0, quantity: 0, currency: 'EUR' } 
+    });
+  }
+};

@@ -4,7 +4,41 @@ to run smoothly. Added stripe.
 
 I need to configure the script further for readability and accessibility next route to configure is the /login 
 all connected vercel-mongodb-stripe
-
+Note each customer has it's own apikey where you can add on docker and notepad kong.yaml
 resources
 https://grok.com/c/2aa9ad63-cdcc-4d65-9bd9-b2e73c834141?rid=5bea9964-0504-4701-bfee-5da51ad8aaa1
 https://gemini.google.com/app/aa0cfe9108c6f7ea
+
+Kong Gateway	Security & Rate Limiting	✅ Completed
+Node.js API	Business Logic & DB	✅ Completed
+Stripe Metering	Tracking Usage Events	✅ Completed
+Webhooks	Handling Payments/Cancellations	🕒 Optional Next Step
+Dashboard	User Interface & Analytics	🕒 Optional Next Step
+Tiered Pricing (The "Scale" Strategy)
+
+1. Webhooks (The "Push" Notification)
+Right now, your app talks to Stripe. Webhooks allow Stripe to talk to your app.
+
+Why you need it: If a customer’s credit card is declined or they cancel their subscription on the Stripe portal, your database won't know unless Stripe sends a "Webhook" event to your server.
+
+The Logic: You create a route like /api/v1/webhooks/stripe. When a payment fails, Stripe pings that route, and your code automatically changes the user's status in MongoDB to inactive.
+
+2. Tiered Pricing (The "Scale" Strategy)
+Currently, you likely have a flat rate (e.g., $0.01 per request). Tiered Pricing allows you to reward high-volume users.
+
+Why you need it: Most APIs use "Graduated Tiers." For example:
+
+First 1,000 requests: $0.10 each.
+
+Next 9,000 requests: $0.05 each.
+
+Everything over 10,000: $0.01 each.
+
+The Logic: You don't change your Node.js code! You simply update the Price configuration in your Stripe Dashboard. Stripe’s billing engine calculates the math automatically based on the same meter events you're already sending.
+
+3. Frontend Dashboard (The "Transparency" Tool)
+This is what the user sees when they log in to your website.
+
+Why you need it: Customers hate "bill shock." They want to see their usage in real-time before the invoice arrives at the end of the month.
+
+The Logic: You create a React or Vue dashboard that calls your /api/v1/auth/me route. You can even fetch the "Upcoming Invoice" from Stripe's API to show the user exactly how much they owe so far this month.
