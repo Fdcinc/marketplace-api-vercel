@@ -17,20 +17,31 @@ exports.register = async (req, res) => {
     const { name, email, password } = req.body;
     if (!name || !email || !password) return res.status(400).json({ success: false, error: 'Missing fields' });
 
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. PRE-CHECK: Prevent duplicate Stripe customers
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(400).json({ success: false, error: 'Email already exists' });
+    }
+
+    // 2. CREATE STRIPE CUSTOMER
     customer = await stripe.customers.create({
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       name: name,
       metadata: { source: 'marketplace_api' }
     });
 
+    // 3. ATTACH SUBSCRIPTION
     await stripe.subscriptions.create({
       customer: customer.id,
       items: [{ price: process.env.STRIPE_PRICE_ID }],
     });
 
+    // 4. CREATE DATABASE USER
     const user = await User.create({
       name,
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       passwordHash: password,
       stripeCustomerId: customer.id 
     });
@@ -41,8 +52,10 @@ exports.register = async (req, res) => {
 
     res.status(201).json({ success: true, token, user: userResponse });
   } catch (err) {
-    if (customer && customer.id && err.code !== 11000) await stripe.customers.del(customer.id);
-    if (err.code === 11000) return res.status(400).json({ success: false, error: 'Email already exists' });
+    // If Stripe customer was created but DB save failed, delete the Stripe customer
+    if (customer && customer.id) {
+      await stripe.customers.del(customer.id);
+    }
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -56,7 +69,7 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
     const token = signToken(user._id);
-    res.json({ success: true, token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    res.json({ success: true, token, user: { id: user._id, name: user.name, email: user.email, role: user.role, stripeCustomerId: user.stripeCustomerId } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -69,6 +82,25 @@ exports.getMe = async (req, res) => {
     res.json({ success: true, user });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.trackUsage = async (req, res, next) => {
+  try {
+    if (req.user && req.user.stripeCustomerId) {
+      await stripe.billing.meterEvents.create({
+        event_name: 'api_request',
+        payload: {
+          stripe_customer_id: req.user.stripeCustomerId,
+          value: '1',
+        },
+      });
+      console.log(`✅ Usage tracked for: ${req.user.stripeCustomerId}`);
+    }
+    next();
+  } catch (err) {
+    console.error('❌ Usage tracking failed:', err.message);
+    next();
   }
 };
 
@@ -134,26 +166,5 @@ exports.deleteMe = async (req, res) => {
     res.status(204).json({ success: true, data: null });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-// Ensure this is at the bottom of controllers/authController.js
-exports.trackUsage = async (req, res, next) => {
-  try {
-    // Check if the user is authenticated (via protect middleware) and has a Stripe ID
-    if (req.user && req.user.stripeCustomerId) {
-      await stripe.billing.meterEvents.create({
-        event_name: 'api_request', // This MUST match your Stripe Meter "Event Name"
-        payload: {
-          stripe_customer_id: req.user.stripeCustomerId,
-          value: '1',
-        },
-      });
-      console.log(`Usage tracked for customer: ${req.user.stripeCustomerId}`);
-    }
-    next(); // Move to the next function (the actual API logic)
-  } catch (err) {
-    console.error('Usage tracking failed:', err.message);
-    next(); // We don't block the user if the billing ping fails
   }
 };
