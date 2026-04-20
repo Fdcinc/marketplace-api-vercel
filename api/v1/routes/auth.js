@@ -3,32 +3,24 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const { protect, restrictTo, verifyGateway } = require('../middleware/auth');
 
-// 🔒 GATEWAY PROTECTION
 router.use(verifyGateway);
 
-// ──── PUBLIC ROUTES ────
 router.post('/register', authController.register);
 router.post('/login', authController.login);
-
-// ──── PROTECTED ROUTES ────
 router.post('/logout', protect, authController.logout);
-router.get('/me', protect, authController.getMe);
 
-// ──── ADMIN ONLY ROUTES ────
+// Usage tracking applied to billable routes
+router.get('/me', protect, authController.trackUsage, authController.getMe);
+router.get('/data', protect, authController.trackUsage, (req, res) => {
+    res.json({ success: true, data: "Metered data delivered!" });
+});
+
 router.get('/all-users', protect, restrictTo('admin', 'superadmin'), authController.getAllUsers);
-
-// ──── USER SELF-MANAGEMENT ────
 router.patch('/update-me', protect, authController.updateMe);
 router.delete('/delete-me', protect, authController.deleteMe);
 
-// ──── ADMIN USER-MANAGEMENT ────
 router.route('/all-users/:id')
   .patch(protect, restrictTo('admin', 'superadmin'), authController.updateUser)
-  .get(protect, restrictTo('admin', 'superadmin'), authController.getUserById); // Cleaned up!
-
-// Example: A billable "Data Fetch" route
-router.get('/data', protect, authController.trackUsage, (req, res) => {
-    res.json({ success: true, data: "Here is your expensive data!" });
-});
+  .get(protect, restrictTo('admin', 'superadmin'), authController.getUserById);
 
 module.exports = router;

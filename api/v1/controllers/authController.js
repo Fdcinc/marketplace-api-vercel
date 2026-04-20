@@ -19,26 +19,20 @@ exports.register = async (req, res) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // 1. PRE-CHECK: Prevent duplicate Stripe customers
     const existingUser = await User.findOne({ email: normalizedEmail });
-    if (existingUser) {
-      return res.status(400).json({ success: false, error: 'Email already exists' });
-    }
+    if (existingUser) return res.status(400).json({ success: false, error: 'Email already exists' });
 
-    // 2. CREATE STRIPE CUSTOMER
     customer = await stripe.customers.create({
       email: normalizedEmail,
       name: name,
       metadata: { source: 'marketplace_api' }
     });
 
-    // 3. ATTACH SUBSCRIPTION
     await stripe.subscriptions.create({
       customer: customer.id,
       items: [{ price: process.env.STRIPE_PRICE_ID }],
     });
 
-    // 4. CREATE DATABASE USER
     const user = await User.create({
       name,
       email: normalizedEmail,
@@ -52,10 +46,7 @@ exports.register = async (req, res) => {
 
     res.status(201).json({ success: true, token, user: userResponse });
   } catch (err) {
-    // If Stripe customer was created but DB save failed, delete the Stripe customer
-    if (customer && customer.id) {
-      await stripe.customers.del(customer.id);
-    }
+    if (customer && customer.id) await stripe.customers.del(customer.id);
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -87,6 +78,7 @@ exports.getMe = async (req, res) => {
 
 exports.trackUsage = async (req, res, next) => {
   try {
+    console.log("🔍 TrackUsage Middleware triggered");
     if (req.user && req.user.stripeCustomerId) {
       await stripe.billing.meterEvents.create({
         event_name: 'api_request',
@@ -96,10 +88,12 @@ exports.trackUsage = async (req, res, next) => {
         },
       });
       console.log(`✅ Usage tracked for: ${req.user.stripeCustomerId}`);
+    } else {
+      console.log("⚠️ Usage NOT tracked: Missing stripeCustomerId");
     }
     next();
   } catch (err) {
-    console.error('❌ Usage tracking failed:', err.message);
+    console.error('❌ Usage tracking ERROR:', err.message);
     next();
   }
 };
@@ -121,7 +115,7 @@ exports.getAllUsers = async (req, res) => {
     const users = await User.find().select('-passwordHash');
     res.status(200).json({ success: true, count: users.length, data: users });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to fetch users' });
+    res.status(500).json({ success: false, error: 'Failed' });
   }
 };
 
