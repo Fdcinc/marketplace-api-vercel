@@ -1,102 +1,69 @@
 const User = require('../models/users');
 const Blacklist = require('../models/blacklist');
 const jwt = require('jsonwebtoken');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const connectDB = require('../config/db');
 
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Initialize Stripe with your secret key
-
-/**
- * Helper to generate JWT
- */
 const signToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
   });
 };
 
-// ──── REGISTER ────
 exports.register = async (req, res) => {
+  await connectDB();
+  let customer;
   try {
     const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ success: false, error: 'Missing fields' });
 
-    // 1. Validation
-    if (!name || !email || !password) {
-      return res.status(400).json({ success: false, error: 'Missing fields' });
-    }
-
-    // 2. Create Stripe Customer FIRST
-    // (If this fails, we don't want a user in our DB without a billable account)
-    const customer = await stripe.customers.create({
+    customer = await stripe.customers.create({
       email: email.toLowerCase().trim(),
       name: name,
       metadata: { source: 'marketplace_api' }
     });
 
-    // 3. Subscribe them to the Metered Price
     await stripe.subscriptions.create({
       customer: customer.id,
       items: [{ price: process.env.STRIPE_PRICE_ID }],
     });
 
-    // 4. Create User in MongoDB with the Stripe Customer ID
     const user = await User.create({
       name,
       email: email.toLowerCase().trim(),
       passwordHash: password,
-      stripeCustomerId: customer.id // This matches the field we added to your schema
+      stripeCustomerId: customer.id 
     });
 
-    // 5. Generate Token and Response
     const token = signToken(user._id);
     const userResponse = user.toObject();
     delete userResponse.passwordHash;
 
     res.status(201).json({ success: true, token, user: userResponse });
-
   } catch (err) {
-    // Check for Duplicate Email
-    if (err.code === 11000) {
-        return res.status(400).json({ success: false, error: 'Email already exists' });
-    }
-    
-    // Stripe specific errors or other logic errors
+    if (customer && customer.id && err.code !== 11000) await stripe.customers.del(customer.id);
+    if (err.code === 11000) return res.status(400).json({ success: false, error: 'Email already exists' });
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
-// ──── LOGIN ────
 exports.login = async (req, res) => {
+  await connectDB();
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'Email and password required' });
-    }
-
     const user = await User.findOne({ email: email.toLowerCase().trim() }).select('+passwordHash');
-
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
-
     const token = signToken(user._id);
-
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
-    });
+    res.json({ success: true, token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Login failed', details: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
-// ──── ME (Current User) ────
 exports.getMe = async (req, res) => {
+  await connectDB();
   try {
     const user = await User.findById(req.user.id).select('-passwordHash');
     res.json({ success: true, user });
@@ -105,106 +72,67 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// ──── LOGOUT ────
 exports.logout = async (req, res) => {
+  await connectDB();
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(400).json({ success: false, error: 'No token found' });
-
-    await Blacklist.create({ token });
-
-    res.status(200).json({ success: true, message: 'Logged out successfully' });
+    if (token) await Blacklist.create({ token });
+    res.status(200).json({ success: true, message: 'Logged out' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Logout failed' });
   }
 };
 
-// ──── ADMIN: GET ALL USERS (CRITICAL: Added this to fix the crash) ────
 exports.getAllUsers = async (req, res) => {
+  await connectDB();
   try {
     const users = await User.find().select('-passwordHash');
-    res.status(200).json({
-      success: true,
-      count: users.length,
-      data: users
-    });
+    res.status(200).json({ success: true, count: users.length, data: users });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch users' });
   }
 };
 
-// ──── UPDATE SELF ────
-exports.updateMe = async (req, res) => {
+exports.getUserById = async (req, res) => {
+  await connectDB();
   try {
-    // 1. Prevent password updates through this route
-    if (req.body.passwordHash) {
-      return res.status(400).json({ success: false, error: 'This route is not for password updates.' });
-    }
-
-    // 2. Filter out unwanted fields (don't let users make themselves admins)
-    const allowedUpdates = ['name', 'email', 'interestedCategoryIds'];
-    const updates = {};
-    Object.keys(req.body).forEach(key => {
-      if (allowedUpdates.includes(key)) updates[key] = req.body[key];
-    });
-
-    const user = await User.findByIdAndUpdate(req.user.id, updates, {
-      new: true,
-      runValidators: true
-    }).select('-passwordHash');
-
+    const user = await User.findById(req.params.id).select('-passwordHash');
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
     res.status(200).json({ success: true, user });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
-// ──── DELETE SELF (Soft Delete) ────
-exports.deleteMe = async (req, res) => {
+exports.updateMe = async (req, res) => {
+  await connectDB();
   try {
-    await User.findByIdAndUpdate(req.user.id, { 
-        status: 'inactive', 
-        deletedAt: new Date() 
-    });
+    const allowedUpdates = ['name', 'email'];
+    const updates = {};
+    Object.keys(req.body).forEach(key => { if (allowedUpdates.includes(key)) updates[key] = req.body[key]; });
+    const user = await User.findByIdAndUpdate(req.user.id, updates, { new: true }).select('-passwordHash');
+    res.status(200).json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
 
+exports.updateUser = async (req, res) => {
+  await connectDB();
+  try {
+    const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true }).select('-passwordHash');
+    res.status(200).json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.deleteMe = async (req, res) => {
+  await connectDB();
+  try {
+    await User.findByIdAndUpdate(req.user.id, { status: 'inactive', deletedAt: new Date() });
     res.status(204).json({ success: true, data: null });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-// ──── ADMIN: UPDATE ANY USER ────
-exports.updateUser = async (req, res) => {
-  try {
-    const user = await User.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true
-    }).select('-passwordHash');
-
-    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
-
-    res.status(200).json({ success: true, user });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-// Add this middleware to track an API call
-exports.trackUsage = async (req, res, next) => {
-  try {
-    // Only track if a user is logged in and has a Stripe ID
-    if (req.user && req.user.stripeCustomerId) {
-      await stripe.billing.meterEvents.create({
-        event_name: 'api_request', // This must match the Event Name in your Stripe Meter
-        payload: {
-          stripe_customer_id: req.user.stripeCustomerId,
-          value: '1',
-        },
-      });
-    }
-    next();
-  } catch (err) {
-    console.error('Usage tracking failed:', err.message);
-    next(); // We don't block the request if billing ping fails
   }
 };

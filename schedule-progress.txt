@@ -1,0 +1,10 @@
+Summury 4/16/2026
+I switched from Kong Konnect to Kong OSS, i added metering and billing and i created the first route /register
+to run smoothly. Added stripe.
+
+I need to configure the script further for readability and accessibility next route to configure is the /login 
+all connected vercel-mongodb-stripe
+
+resources
+https://grok.com/c/2aa9ad63-cdcc-4d65-9bd9-b2e73c834141?rid=5bea9964-0504-4701-bfee-5da51ad8aaa1
+https://gemini.google.com/app/aa0cfe9108c6f7ea
