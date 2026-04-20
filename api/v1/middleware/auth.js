@@ -14,17 +14,27 @@ const verifyGateway = (req, res, next) => {
 const protect = async (req, res, next) => {
   try {
     await connectDB(); 
-    let token = req.headers.authorization?.startsWith('Bearer') ? req.headers.authorization.split(' ')[1] : null;
+
+    let token = req.headers.authorization?.startsWith('Bearer') 
+                ? req.headers.authorization.split(' ')[1] 
+                : null;
+
     if (!token) return res.status(401).json({ error: 'Not authorized' });
 
-    if (await Blacklist.findOne({ token })) return res.status(401).json({ error: 'Token logged out' });
+    const isBlacklisted = await Blacklist.findOne({ token });
+    if (isBlacklisted) return res.status(401).json({ error: 'Token logged out' });
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findById(decoded.id).select('-passwordHash');
+    
+    // We fetch the user and attach it to the REQ object
+    const currentUser = await User.findById(decoded.id);
 
-    if (!req.user) return res.status(401).json({ error: 'User not found' });
-    console.log(`👤 User: ${req.user.email} | StripeID: ${req.user.stripeCustomerId}`);
-    next();
+    if (!currentUser) return res.status(401).json({ error: 'User not found' });
+
+    req.user = currentUser; 
+    
+    // This is the bridge to trackUsage
+    next(); 
   } catch (err) {
     res.status(401).json({ error: 'Authentication failed' });
   }
