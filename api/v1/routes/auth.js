@@ -26,4 +26,9 @@ router.route('/all-users/:id')
   .patch(protect, restrictTo('admin', 'superadmin'), authController.updateUser)
   .get(protect, restrictTo('admin', 'superadmin'), authController.getUserById); // Cleaned up!
 
+// Example: A billable "Data Fetch" route
+router.get('/data', protect, authController.trackUsage, (req, res) => {
+    res.json({ success: true, data: "Here is your expensive data!" });
+});
+
 module.exports = router;

@@ -136,3 +136,24 @@ exports.deleteMe = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+// Ensure this is at the bottom of controllers/authController.js
+exports.trackUsage = async (req, res, next) => {
+  try {
+    // Check if the user is authenticated (via protect middleware) and has a Stripe ID
+    if (req.user && req.user.stripeCustomerId) {
+      await stripe.billing.meterEvents.create({
+        event_name: 'api_request', // This MUST match your Stripe Meter "Event Name"
+        payload: {
+          stripe_customer_id: req.user.stripeCustomerId,
+          value: '1',
+        },
+      });
+      console.log(`Usage tracked for customer: ${req.user.stripeCustomerId}`);
+    }
+    next(); // Move to the next function (the actual API logic)
+  } catch (err) {
+    console.error('Usage tracking failed:', err.message);
+    next(); // We don't block the user if the billing ping fails
+  }
+};
