@@ -5,9 +5,22 @@ const connectDB = require('../config/db');
 
 const verifyGateway = (req, res, next) => {
   const gatewaySecret = req.headers['x-platform-secret'];
-  if (gatewaySecret !== process.env.GATEWAY_SECRET) {
-    return res.status(403).json({ success: false, error: 'Access Denied: Use the API Gateway.' });
+  const expectedSecret = process.env.GATEWAY_SECRET || 'my-marketplace-private-key-123';
+
+  console.log("--- Request Received ---");
+  console.log("Secret found in headers:", gatewaySecret);
+
+  if (!gatewaySecret || gatewaySecret !== expectedSecret) {
+    console.log("❌ Unauthorized access attempt.");
+    // Ensure we ALWAYS return a response so the connection doesn't hang
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Access Denied: Use the API Gateway.',
+      debug: 'Secret mismatch or missing' 
+    });
   }
+
+  console.log("✅ Secret Verified!");
   next();
 };
 

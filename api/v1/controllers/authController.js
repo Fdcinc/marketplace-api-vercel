@@ -163,30 +163,48 @@ exports.deleteMe = async (req, res) => {
 
 exports.getUsage = async (req, res) => {
   try {
-    // 1. Get the customer's upcoming invoice from Stripe
-    const upcomingInvoice = await stripe.invoices.retrieveUpcoming({
-      customer: req.user.stripeCustomerId,
+    const customerId = req.user.stripeCustomerId;
+
+    if (!customerId) {
+      return res.status(200).json({ 
+        success: true, 
+        data: { amount_due: 0, quantity: 0, currency: 'EUR' } 
+      });
+    }
+
+    // 1. Fetch real-time quantity from the Meter Summary
+    // Note: 'api_request' must match the event_name in trackUsage
+    const meterSummary = await stripe.billing.meters.listEventSummaries('api_request', {
+      customer: customerId,
+      start_time: Math.floor(new Date().setMonth(new Date().getMonth() - 1) / 1000), // Last 30 days
+      end_time: Math.floor(Date.now() / 1000),
     });
 
-    // 2. Extract the specific "Metered" line item
-    const usageLine = upcomingInvoice.lines.data.find(
-      (line) => line.period.start === upcomingInvoice.next_payment_attempt
-    ) || upcomingInvoice.lines.data[0];
+    const currentQuantity = meterSummary.data[0]?.aggregate_value || 0;
+
+    // 2. Fetch financial data from the upcoming invoice
+    let upcomingInvoice;
+    try {
+      upcomingInvoice = await stripe.invoices.retrieveUpcoming({
+        customer: customerId,
+      });
+    } catch (invoiceErr) {
+      // If no subscription is active or no invoice pending
+      upcomingInvoice = { amount_remaining: 0, currency: 'eur', next_payment_attempt: Date.now() / 1000 };
+    }
 
     res.json({
       success: true,
       data: {
-        amount_due: upcomingInvoice.amount_remaining / 100, // Convert cents to Euros
+        amount_due: upcomingInvoice.amount_remaining / 100,
         currency: upcomingInvoice.currency.toUpperCase(),
-        quantity: usageLine.quantity, // This is your '4' or '5' units
+        quantity: currentQuantity,
         period_end: new Date(upcomingInvoice.next_payment_attempt * 1000).toLocaleDateString(),
       }
     });
+
   } catch (err) {
-    // If no usage exists yet, Stripe might throw an error; handle it gracefully
-    res.status(200).json({ 
-      success: true, 
-      data: { amount_due: 0, quantity: 0, currency: 'EUR' } 
-    });
+    console.error('❌ GetUsage Error:', err.message);
+    res.status(500).json({ success: false, error: 'Could not fetch usage data' });
   }
 };
