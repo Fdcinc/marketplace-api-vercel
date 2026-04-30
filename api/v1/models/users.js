@@ -53,6 +53,23 @@ const UserSchema = new mongoose.Schema({
     sparse: true // Allows multiple users to have 'null' while ensuring IDs stay unique
   },
   stripeSubscriptionId: { type: String },
+
+  // ADD THESE THREE FIELDS BELOW:
+  currentUsage: { 
+    type: Number, 
+    default: 0,
+    min: 0 
+  },
+  usageLastUpdated: { 
+    type: Date, 
+    default: Date.now 
+  },
+  apiKey: { 
+    type: String, 
+    unique: true, 
+    sparse: true,
+    select: false // Keep it hidden by default for security
+  },
   
   // ──── AUDIT & RECOVERY ────
   schemaVersion: { type: Number, default: 2, min: 1 },
