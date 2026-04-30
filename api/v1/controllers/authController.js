@@ -10,6 +10,8 @@ const signToken = (id) => {
   });
 };
 
+// --- AUTH LOGIC ---
+
 exports.register = async (req, res) => {
   await connectDB();
   let customer;
@@ -76,6 +78,8 @@ exports.getMe = async (req, res) => {
   }
 };
 
+// --- MIDDLEWARE & UTILITY ---
+
 exports.trackUsage = async (req, res, next) => {
   try {
     console.log("🔍 TrackUsage Middleware triggered");
@@ -106,6 +110,84 @@ exports.logout = async (req, res) => {
     res.status(500).json({ success: false, error: 'Logout failed' });
   }
 };
+
+// --- STRIPE USAGE LOGIC ---
+
+exports.getUsage = async (req, res) => {
+  console.log("📊 Fetching usage for customer:", req.user?.stripeCustomerId || req.user?.id);
+  try {
+    const customerId = req.user?.stripeCustomerId;
+
+    if (!customerId) {
+      return res.status(200).json({ 
+        success: true, 
+        data: { amount_due: 0, quantity: 0, currency: 'EUR', period_end: '--' } 
+      });
+    }
+
+    let currentQuantity = 0;
+    try {
+      // 1. Try querying by the explicit Meter ID first
+      const meterSummary = await stripe.billing.meters.listEventSummaries(
+        'mtr_test_61UVzs7rYoG6Rp8TQ41K9agNIw6KrHtQ', 
+        {
+          customer: customerId,
+          start_time: Math.floor(new Date().setMonth(new Date().getMonth() - 1) / 1000),
+          end_time: Math.floor(Date.now() / 1000),
+        }
+      );
+
+      if (meterSummary.data && meterSummary.data.length > 0) {
+        currentQuantity = meterSummary.data[0].aggregate_value || 0;
+      } else {
+        // 2. Fallback: Query by event_name 'api_request'
+        const eventSummary = await stripe.billing.meters.listEventSummaries(
+          'api_request', 
+          {
+            customer: customerId,
+            start_time: Math.floor(new Date().setMonth(new Date().getMonth() - 1) / 1000),
+            end_time: Math.floor(Date.now() / 1000),
+          }
+        );
+        currentQuantity = eventSummary.data[0]?.aggregate_value || 0;
+      }
+      console.log(`📈 Current Meter Quantity: ${currentQuantity}`);
+    } catch (meterErr) {
+      console.error('⚠️ Meter Summary Fetch Failed:', meterErr.message);
+    }
+
+    // 2. Fetch financial data from the upcoming invoice
+    let upcomingInvoice;
+    try {
+      upcomingInvoice = await stripe.invoices.retrieveUpcoming({
+        customer: customerId,
+      });
+    } catch (invoiceErr) {
+      // Fallback if no invoice exists yet
+      upcomingInvoice = { 
+        amount_remaining: 0, 
+        currency: 'eur', 
+        next_payment_attempt: Math.floor(Date.now() / 1000) 
+      };
+    }
+
+    res.json({
+      success: true,
+      data: {
+        amount_due: (upcomingInvoice.amount_remaining || 0) / 100,
+        currency: (upcomingInvoice.currency || 'EUR').toUpperCase(),
+        quantity: currentQuantity,
+        period_end: new Date((upcomingInvoice.next_payment_attempt || Date.now() / 1000) * 1000).toLocaleDateString(),
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Critical GetUsage Error:', err.message);
+    res.status(500).json({ success: false, error: 'Could not fetch usage data' });
+  }
+};
+
+// --- ADMIN / USER CRUD ---
 
 exports.getAllUsers = async (req, res) => {
   await connectDB();
@@ -158,53 +240,5 @@ exports.deleteMe = async (req, res) => {
     res.status(204).json({ success: true, data: null });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-exports.getUsage = async (req, res) => {
-  try {
-    const customerId = req.user.stripeCustomerId;
-
-    if (!customerId) {
-      return res.status(200).json({ 
-        success: true, 
-        data: { amount_due: 0, quantity: 0, currency: 'EUR' } 
-      });
-    }
-
-    // 1. Fetch real-time quantity from the Meter Summary
-    // Note: 'api_request' must match the event_name in trackUsage
-    const meterSummary = await stripe.billing.meters.listEventSummaries('api_request', {
-      customer: customerId,
-      start_time: Math.floor(new Date().setMonth(new Date().getMonth() - 1) / 1000), // Last 30 days
-      end_time: Math.floor(Date.now() / 1000),
-    });
-
-    const currentQuantity = meterSummary.data[0]?.aggregate_value || 0;
-
-    // 2. Fetch financial data from the upcoming invoice
-    let upcomingInvoice;
-    try {
-      upcomingInvoice = await stripe.invoices.retrieveUpcoming({
-        customer: customerId,
-      });
-    } catch (invoiceErr) {
-      // If no subscription is active or no invoice pending
-      upcomingInvoice = { amount_remaining: 0, currency: 'eur', next_payment_attempt: Date.now() / 1000 };
-    }
-
-    res.json({
-      success: true,
-      data: {
-        amount_due: upcomingInvoice.amount_remaining / 100,
-        currency: upcomingInvoice.currency.toUpperCase(),
-        quantity: currentQuantity,
-        period_end: new Date(upcomingInvoice.next_payment_attempt * 1000).toLocaleDateString(),
-      }
-    });
-
-  } catch (err) {
-    console.error('❌ GetUsage Error:', err.message);
-    res.status(500).json({ success: false, error: 'Could not fetch usage data' });
   }
 };
