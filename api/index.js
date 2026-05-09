@@ -5,41 +5,46 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('./v1/config/db');
 const authRoutes = require('./v1/routes/auth');
-const authController = require('./v1/controllers/authController'); // Import controller for webhook
+const authController = require('./v1/controllers/authController');
 
 const app = express();
 
-// 1. Initialize DB
-connectDB();
+// ====================== CORS ======================
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000'
+  ],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-platform-secret'],
+  credentials: true
+}));
 
-// 2. Standard Middleware
-app.use(cors());
-
-/**
- * 3. STRIPE WEBHOOK ROUTE (CRITICAL PLACEMENT)
- * This must be defined BEFORE app.use(express.json())
- */
+// ====================== STRIPE WEBHOOK ======================
 app.post(
   '/api/v1/webhooks',
   express.raw({ type: 'application/json' }),
   authController.handleStripeWebhook
 );
 
-// 4. Global JSON Parser (Now it's safe to use for all other routes)
+// ====================== BODY PARSER ======================
 app.use(express.json());
 
-// 5. Routes
+// ====================== ROUTES ======================
 app.use('/api/v1/auth', authRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: "Marketplace API is running locally" });
 });
 
+// ====================== START SERVER ======================
+const PORT = process.env.PORT || 8000;   // Default to 8000
+
 if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-    console.log(`Webhook endpoint active at http://localhost:${PORT}/api/v1/webhooks`);
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`✅ CORS allowed for http://localhost:5173`);
   });
 }
 

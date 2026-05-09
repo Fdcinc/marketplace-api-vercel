@@ -7,55 +7,64 @@ const verifyGateway = (req, res, next) => {
   const gatewaySecret = req.headers['x-platform-secret'];
   const expectedSecret = process.env.GATEWAY_SECRET || 'my-marketplace-private-key-123';
 
-  console.log("--- Request Received ---");
-  console.log("Secret found in headers:", gatewaySecret);
-
   if (!gatewaySecret || gatewaySecret !== expectedSecret) {
-    console.log("❌ Unauthorized access attempt.");
-    // Ensure we ALWAYS return a response so the connection doesn't hang
+    console.log("❌ Gateway Secret Mismatch");
     return res.status(403).json({ 
       success: false, 
-      error: 'Access Denied: Use the API Gateway.',
-      debug: 'Secret mismatch or missing' 
+      error: 'Access Denied: Invalid platform secret' 
     });
   }
-
-  console.log("✅ Secret Verified!");
   next();
 };
 
 const protect = async (req, res, next) => {
   try {
-    await connectDB(); 
+    await connectDB();
 
-    let token = req.headers.authorization?.startsWith('Bearer') 
-                ? req.headers.authorization.split(' ')[1] 
+    const authHeader = req.headers.authorization;
+    console.log('🔐 Auth Header received:', authHeader ? authHeader.substring(0, 70) + '...' : 'MISSING');
+
+    let token = authHeader?.startsWith('Bearer ') 
+                ? authHeader.split(' ')[1] 
                 : null;
 
-    if (!token) return res.status(401).json({ error: 'Not authorized' });
+    if (!token) {
+      console.log('❌ No token provided');
+      return res.status(401).json({ error: 'No token provided' });
+    }
 
-    const isBlacklisted = await Blacklist.findOne({ token });
-    if (isBlacklisted) return res.status(401).json({ error: 'Token logged out' });
+    // Verify JWT
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtErr) {
+      console.error('❌ JWT Verify Error:', jwtErr.name, jwtErr.message);
+      if (jwtErr.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Token has expired. Please login again.' });
+      }
+      return res.status(401).json({ error: 'Invalid token' });
+    }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const currentUser = await User.findById(decoded.id).select('-passwordHash');
+
+    if (!currentUser) {
+      console.log('❌ User not found for ID:', decoded.id);
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    req.user = currentUser;
+    console.log(`✅ Auth successful → ${currentUser.email} (${currentUser.role})`);
     
-    // We fetch the user and attach it to the REQ object
-    const currentUser = await User.findById(decoded.id);
-
-    if (!currentUser) return res.status(401).json({ error: 'User not found' });
-
-    req.user = currentUser; 
-    
-    // This is the bridge to trackUsage
-    next(); 
+    next();
   } catch (err) {
+    console.error('❌ Protect Middleware Crash:', err.message);
     res.status(401).json({ error: 'Authentication failed' });
   }
 };
 
 const restrictTo = (...roles) => (req, res, next) => {
   if (!roles.includes(req.user.role)) {
-    return res.status(403).json({ success: false, error: 'Forbidden' });
+    return res.status(403).json({ success: false, error: 'Forbidden: Insufficient permissions' });
   }
   next();
 };
