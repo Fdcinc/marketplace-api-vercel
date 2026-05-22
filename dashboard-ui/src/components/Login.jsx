@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
-import { User, Zap } from 'lucide-react';
+import { useAuth0 } from '@auth0/auth0-react';
+import { Zap, User } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:5000';
 
-const Login = ({ onLoginSuccess }) => {
+const Login = ({ onCustomLoginSuccess }) => {
+  const { loginWithRedirect } = useAuth0();
+
   const [email, setEmail] = useState('realtest@exampletest.com');
   const [password, setPassword] = useState('Password123456');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleLogin = async (e) => {
+  const handleCustomLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -27,14 +30,14 @@ const Login = ({ onLoginSuccess }) => {
       const data = await response.json();
 
       if (data.success && data.token) {
-        onLoginSuccess(data.token);
-        console.log('✅ Login successful!');
+        onCustomLoginSuccess(data.token);
+        console.log('✅ Custom login successful');
       } else {
-        setError(data.error || 'Login failed');
+        setError(data.error || 'Invalid credentials');
       }
     } catch (err) {
+      console.error('Login error:', err); // ← Added this to use the 'err' variable
       setError('Cannot connect to server. Is the backend running?');
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -43,15 +46,26 @@ const Login = ({ onLoginSuccess }) => {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <div style={styles.loginHeader}>
+        <div style={styles.header}>
           <div style={styles.logo}>
             <Zap size={42} color="#4f46e5" />
-            <h1 style={styles.marketplaceName}>API Marketplace</h1>
+            <h1 style={styles.title}>API Marketplace</h1>
           </div>
           <p style={styles.subtitle}>Sign in to your developer account</p>
         </div>
 
-        <form onSubmit={handleLogin}>
+        {/* Auth0 Login */}
+        <button onClick={loginWithRedirect} style={styles.auth0Button}>
+          <User size={20} />
+          Sign in with Auth0
+        </button>
+
+        <div style={styles.divider}>
+          <span>OR</span>
+        </div>
+
+        {/* Traditional Email/Password Login */}
+        <form onSubmit={handleCustomLogin}>
           <div style={styles.inputGroup}>
             <label style={styles.label}>Email Address</label>
             <input
@@ -76,10 +90,14 @@ const Login = ({ onLoginSuccess }) => {
 
           {error && <div style={styles.error}>{error}</div>}
 
-          <button type="submit" disabled={loading} style={styles.button}>
-            {loading ? 'Signing in...' : 'Sign In'}
+          <button type="submit" disabled={loading} style={styles.customButton}>
+            {loading ? 'Signing in...' : 'Sign in with Email'}
           </button>
         </form>
+
+        <p style={styles.footer}>
+          Secure login powered by Auth0 + Custom Authentication
+        </p>
       </div>
     </div>
   );
@@ -93,7 +111,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '20px',
-    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+    fontFamily: 'Inter, system-ui, sans-serif',
   },
   card: {
     backgroundColor: '#ffffff',
@@ -104,9 +122,9 @@ const styles = {
     maxWidth: '420px',
     border: '1px solid #e5e7eb',
   },
-  loginHeader: {
+  header: {
     textAlign: 'center',
-    marginBottom: '40px',
+    marginBottom: '32px',
   },
   logo: {
     display: 'flex',
@@ -115,7 +133,7 @@ const styles = {
     gap: '12px',
     marginBottom: '12px',
   },
-  marketplaceName: {
+  title: {
     margin: 0,
     fontSize: '28px',
     fontWeight: '700',
@@ -126,8 +144,31 @@ const styles = {
     margin: 0,
     fontSize: '15.5px',
   },
+  auth0Button: {
+    width: '100%',
+    padding: '15px',
+    backgroundColor: '#000000',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    marginBottom: '20px',
+  },
+  divider: {
+    textAlign: 'center',
+    margin: '24px 0',
+    color: '#9ca3af',
+    fontSize: '14px',
+    position: 'relative',
+  },
   inputGroup: {
-    marginBottom: '24px',
+    marginBottom: '20px',
   },
   label: {
     display: 'block',
@@ -142,9 +183,8 @@ const styles = {
     fontSize: '16px',
     border: '1px solid #d1d5db',
     borderRadius: '10px',
-    outline: 'none',
   },
-  button: {
+  customButton: {
     width: '100%',
     padding: '15px',
     backgroundColor: '#4f46e5',
@@ -154,16 +194,20 @@ const styles = {
     fontSize: '16px',
     fontWeight: '600',
     cursor: 'pointer',
-    marginTop: '8px',
   },
   error: {
     color: '#dc2626',
     backgroundColor: '#fef2f2',
-    border: '1px solid #fecaca',
-    padding: '12px 16px',
-    borderRadius: '10px',
-    marginBottom: '20px',
+    padding: '12px',
+    borderRadius: '8px',
+    marginBottom: '16px',
     fontSize: '14px',
+  },
+  footer: {
+    textAlign: 'center',
+    marginTop: '24px',
+    color: '#9ca3af',
+    fontSize: '13px',
   },
 };
 

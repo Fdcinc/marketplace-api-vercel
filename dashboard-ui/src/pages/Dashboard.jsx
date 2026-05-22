@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Activity, CreditCard, LogOut, RefreshCw, Zap } from 'lucide-react';
+import { Activity, CreditCard, RefreshCw, Zap } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:5000';
 
-const Dashboard = ({ token, onLogout }) => {
+const Dashboard = ({ token }) => {
   const [usageData, setUsageData] = useState({
     quantity: 0,
     amount_due: 0,
@@ -18,6 +18,12 @@ const Dashboard = ({ token, onLogout }) => {
     if (isManualRefresh) setIsLoading(true);
     setError(null);
 
+    if (!token) {
+      setError('No authentication token found. Please login again.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/usage`, {
         method: 'GET',
@@ -29,25 +35,25 @@ const Dashboard = ({ token, onLogout }) => {
       });
 
       if (response.status === 401) {
-        onLogout();
+        setError('Session expired. Please login again.');
         return;
       }
 
-      if (!response.ok) throw new Error('Failed to fetch data');
+      if (!response.ok) throw new Error('Failed to fetch usage data');
 
       const json = await response.json();
       if (json.success) {
         setUsageData(json.data);
       } else {
-        setError(json.error || 'Failed to load usage data');
+        setError(json.error || 'Failed to load data');
       }
     } catch (err) {
-      setError('Failed to fetch usage data');
       console.error(err);
+      setError('Failed to fetch usage data. Is the backend running?');
     } finally {
       setIsLoading(false);
     }
-  }, [token, onLogout]);
+  }, [token]);
 
   useEffect(() => {
     if (!hasFetched.current) {
@@ -57,124 +63,86 @@ const Dashboard = ({ token, onLogout }) => {
   }, [fetchUsage]);
 
   return (
-    <div style={styles.container}>
-      {/* Header */}
-      <header style={styles.header}>
-        <div style={styles.headerContent}>
-          <div style={styles.logo}>
-            <Zap size={28} color="#4f46e5" />
-            <h1 style={styles.title}>API Marketplace</h1>
-          </div>
-          <button onClick={onLogout} style={styles.logoutBtn}>
-            <LogOut size={18} /> Logout
-          </button>
+    <div>
+      <div style={styles.header}>
+        <div>
+          <h1 style={styles.pageTitle}>Dashboard</h1>
+          <p style={styles.subtitle}>Real-time usage and billing overview</p>
         </div>
-      </header>
+      </div>
 
       {error && <div style={styles.errorBanner}>{error}</div>}
 
-      <div style={styles.dashboardContent}>
-        <div style={styles.grid}>
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <Activity size={22} color="#4f46e5" />
-              <span>Total API Requests</span>
-            </div>
-            <h2 style={styles.stat}>
-              {isLoading ? '...' : (usageData.quantity || 0).toLocaleString()}
-            </h2>
-            <p style={styles.subtext}>Current billing cycle</p>
+      <div style={styles.grid}>
+        {/* Total Requests Card */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <Activity size={24} color="#4f46e5" />
+            <span>Total API Requests</span>
           </div>
-
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <CreditCard size={22} color="#10b981" />
-              <span>Accrued Cost</span>
-            </div>
-            <h2 style={styles.stat}>
-              {isLoading ? '...' : `€${(usageData.amount_due || 0).toFixed(2)}`}
-            </h2>
-            <p style={styles.subtext}>Next invoice: {usageData.period_end}</p>
-          </div>
+          <h2 style={styles.stat}>
+            {isLoading ? '...' : (usageData.quantity || 0).toLocaleString()}
+          </h2>
+          <p style={styles.subtext}>Current billing cycle</p>
         </div>
 
-        <button
-          onClick={() => fetchUsage(true)}
-          disabled={isLoading}
-          style={styles.refreshButton}
-        >
-          <RefreshCw size={18} style={{ marginRight: '8px' }} />
-          {isLoading ? 'Refreshing...' : 'Refresh Data'}
-        </button>
+        {/* Accrued Cost Card */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <CreditCard size={24} color="#10b981" />
+            <span>Accrued Cost</span>
+          </div>
+          <h2 style={styles.stat}>
+            {isLoading ? '...' : `€${(usageData.amount_due || 0).toFixed(2)}`}
+          </h2>
+          <p style={styles.subtext}>Next invoice: {usageData.period_end}</p>
+        </div>
       </div>
+
+      <button 
+        onClick={() => fetchUsage(true)} 
+        disabled={isLoading}
+        style={styles.refreshButton}
+      >
+        <RefreshCw size={18} style={{ marginRight: '10px' }} />
+        {isLoading ? 'Refreshing...' : 'Refresh Data'}
+      </button>
     </div>
   );
 };
 
 const styles = {
-  container: {
-    minHeight: '100vh',
-    background: '#f8fafc',
-    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-  },
   header: {
-    backgroundColor: '#ffffff',
-    borderBottom: '1px solid #e5e7eb',
-    padding: '16px 32px',
-    position: 'sticky',
-    top: 0,
-    zIndex: 10,
+    marginBottom: '40px',
   },
-  headerContent: {
-    maxWidth: '1200px',
-    margin: '0 auto',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  logo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  title: {
-    margin: 0,
-    fontSize: '24px',
+  pageTitle: {
+    fontSize: '32px',
     fontWeight: '700',
     color: '#1f2937',
+    margin: '0 0 8px 0',
   },
-  logoutBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px 16px',
-    backgroundColor: '#f3f4f6',
-    color: '#374151',
-    border: 'none',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
+  subtitle: {
+    color: '#6b7280',
+    fontSize: '16px',
+    margin: 0,
   },
   errorBanner: {
     backgroundColor: '#fef2f2',
     color: '#dc2626',
-    padding: '14px 32px',
-    textAlign: 'center',
-  },
-  dashboardContent: {
-    maxWidth: '1200px',
-    margin: '40px auto',
-    padding: '0 32px',
+    padding: '14px 20px',
+    borderRadius: '10px',
+    marginBottom: '24px',
+    border: '1px solid #fecaca',
   },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
     gap: '24px',
-    marginBottom: '32px',
+    marginBottom: '40px',
   },
   card: {
     backgroundColor: '#ffffff',
-    padding: '28px',
+    padding: '32px',
     borderRadius: '16px',
     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
     border: '1px solid #e5e7eb',
@@ -183,13 +151,14 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-    marginBottom: '16px',
+    marginBottom: '20px',
     color: '#4b5563',
-    fontWeight: '500',
+    fontWeight: '600',
+    fontSize: '15px',
   },
   stat: {
     margin: '0 0 8px 0',
-    fontSize: '42px',
+    fontSize: '48px',
     fontWeight: '700',
     color: '#1f2937',
   },
@@ -210,6 +179,7 @@ const styles = {
     fontSize: '16px',
     fontWeight: '600',
     cursor: 'pointer',
+    width: 'fit-content',
   },
 };
 

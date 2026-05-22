@@ -1,39 +1,68 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth0 } from '@auth0/auth0-react';
 import Login from './components/Login';
 import Dashboard from './pages/Dashboard';
+import ApiKeys from './pages/ApiKeys';
+import Endpoints from './pages/Endpoints';
+import Sidebar from './components/Sidebar';
 
 const App = () => {
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const { isAuthenticated: isAuth0Authenticated, logout } = useAuth0();
+  const [customToken, setCustomToken] = useState(localStorage.getItem('token'));
 
-  // Sync with localStorage in case it changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      setToken(localStorage.getItem('token'));
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
-  const handleLoginSuccess = (newToken) => {
-    localStorage.setItem('token', newToken);
-    setToken(newToken);
+  const handleCustomLoginSuccess = (token) => {
+    localStorage.setItem('token', token);
+    setCustomToken(token);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
-    setToken(null);
+    setCustomToken(null);
+
+    if (isAuth0Authenticated) {
+      logout({ returnTo: window.location.origin });
+    } else {
+      window.location.reload();
+    }
   };
 
+  const isLoggedIn = isAuth0Authenticated || !!customToken;
+
   return (
-    <>
-      {!token ? (
-        <Login onLoginSuccess={handleLoginSuccess} />
+    <Router>
+      {!isLoggedIn ? (
+        <Login onCustomLoginSuccess={handleCustomLoginSuccess} />
       ) : (
-        <Dashboard token={token} onLogout={handleLogout} />
+        <div style={styles.appContainer}>
+          <Sidebar onLogout={handleLogout} />
+          
+          <div style={styles.mainContent}>
+            <Routes>
+              <Route path="/dashboard" element={<Dashboard token={customToken} />} />
+              <Route path="/api-keys" element={<ApiKeys />} />
+              <Route path="/endpoints" element={<Endpoints />} />
+              <Route path="*" element={<Navigate to="/dashboard" />} />
+            </Routes>
+          </div>
+        </div>
       )}
-    </>
+    </Router>
   );
+};
+
+const styles = {
+  appContainer: {
+    display: 'flex',
+    minHeight: '100vh',
+    background: '#f8fafc',
+    fontFamily: 'Inter, system-ui, sans-serif',
+  },
+  mainContent: {
+    flex: 1,
+    padding: '32px',
+    overflow: 'auto',
+  },
 };
 
 export default App;
