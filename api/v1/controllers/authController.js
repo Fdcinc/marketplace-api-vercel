@@ -130,7 +130,7 @@ exports.trackUsage = async (req, res, next) => {
     }
 
     await connectDB();
-    const HARD_LIMIT = 500;
+    const HARD_LIMIT = 1000;
     const user = await User.findById(req.user.id);
 
     if (!user) {

@@ -41,7 +41,8 @@ const App = () => {
             <Routes>
               <Route path="/dashboard" element={<Dashboard token={customToken} />} />
               <Route path="/api-keys" element={<ApiKeys />} />
-              <Route path="/endpoints" element={<Endpoints />} />
+              {/* Fixed: Passing token to Endpoints */}
+              <Route path="/endpoints" element={<Endpoints token={customToken} />} />
               <Route path="*" element={<Navigate to="/dashboard" />} />
             </Routes>
           </div>
