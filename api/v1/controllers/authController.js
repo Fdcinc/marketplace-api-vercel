@@ -130,7 +130,7 @@ exports.trackUsage = async (req, res, next) => {
     }
 
     await connectDB();
-    const HARD_LIMIT = 1000;
+    const HARD_LIMIT = parseInt(process.env.USAGE_HARD_LIMIT) || 1000;
     const user = await User.findById(req.user.id);
 
     if (!user) {
@@ -229,6 +229,36 @@ exports.getUsage = async (req, res) => {
   } catch (err) {
     console.error('❌ GetUsage Crash:', err.message);
     res.status(500).json({ success: false, error: 'Failed to retrieve usage' });
+  }
+};
+
+// Reset Usage - Useful for testing
+exports.resetUsage = async (req, res) => {
+  await connectDB();
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { currentUsage: 0 },
+      { returnDocument: 'after' }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    console.log(`🔄 Usage reset for ${user.email} → 0 (Limit: 1000)`);
+
+    res.json({ 
+      success: true, 
+      message: 'Usage reset successfully. You can now make up to 1000 requests again.',
+      currentUsage: 0,
+      hardLimit: 1000,
+      note: 'You can now make up to 1000 requests again'
+    });
+
+  } catch (err) {
+    console.error('Reset Usage Error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 

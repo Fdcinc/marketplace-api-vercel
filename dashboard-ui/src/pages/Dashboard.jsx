@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Activity, CreditCard, RefreshCw, Zap } from 'lucide-react';
+import { Activity, CreditCard, RefreshCw, RotateCcw } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:5000';
 
@@ -9,22 +9,22 @@ const Dashboard = ({ token }) => {
     amount_due: 0,
     period_end: '--'
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const hasFetched = useRef(false);
 
-  const fetchUsage = useCallback(async (isManualRefresh = false) => {
-    if (isManualRefresh) setIsLoading(true);
-    setError(null);
-
+  const fetchUsage = useCallback(async (showLoading = true) => {
     if (!token) {
-      setError('No authentication token found. Please login again.');
-      setIsLoading(false);
+      setError("No authentication token found. Please login again.");
+      setLoading(false);
       return;
     }
 
     try {
+      if (showLoading) setLoading(true);
+      setError(null);
+
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/usage`, {
         method: 'GET',
         headers: {
@@ -34,12 +34,12 @@ const Dashboard = ({ token }) => {
         }
       });
 
-      if (response.status === 401) {
-        setError('Session expired. Please login again.');
+      if (response.status === 429) {
+        setError("Rate limit reached (1000 requests). Please wait or upgrade your plan.");
         return;
       }
 
-      if (!response.ok) throw new Error('Failed to fetch usage data');
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const json = await response.json();
       if (json.success) {
@@ -49,18 +49,45 @@ const Dashboard = ({ token }) => {
       }
     } catch (err) {
       console.error(err);
-      setError('Failed to fetch usage data. Is the backend running?');
+      setError('Could not connect to backend. Is the server running?');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   }, [token]);
 
+  // Your preferred pattern with hasFetched
   useEffect(() => {
     if (!hasFetched.current) {
       fetchUsage();
       hasFetched.current = true;
     }
   }, [fetchUsage]);
+
+  const resetUsage = async () => {
+    if (!window.confirm('Reset usage counter to 0? (For testing only)')) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/reset-usage`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-platform-secret': 'my-marketplace-private-key-123',
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const json = await response.json();
+      if (json.success) {
+        alert(`✅ Usage reset successfully!\n\nCurrent Usage: 0\nLimit: 1000 requests`);
+        fetchUsage(false); // Refresh without full loading
+      } else {
+        alert(json.error || 'Failed to reset usage');
+      }
+    } catch (err) {
+      console.error('Reset usage error:', err);
+      alert('Error resetting usage. Is backend running?');
+    }
+  };
 
   return (
     <div>
@@ -74,47 +101,50 @@ const Dashboard = ({ token }) => {
       {error && <div style={styles.errorBanner}>{error}</div>}
 
       <div style={styles.grid}>
-        {/* Total Requests Card */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <Activity size={24} color="#4f46e5" />
             <span>Total API Requests</span>
           </div>
           <h2 style={styles.stat}>
-            {isLoading ? '...' : (usageData.quantity || 0).toLocaleString()}
+            {loading ? '...' : (usageData.quantity || 0).toLocaleString()}
           </h2>
           <p style={styles.subtext}>Current billing cycle</p>
         </div>
 
-        {/* Accrued Cost Card */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <CreditCard size={24} color="#10b981" />
             <span>Accrued Cost</span>
           </div>
           <h2 style={styles.stat}>
-            {isLoading ? '...' : `€${(usageData.amount_due || 0).toFixed(2)}`}
+            {loading ? '...' : `€${(usageData.amount_due || 0).toFixed(2)}`}
           </h2>
           <p style={styles.subtext}>Next invoice: {usageData.period_end}</p>
         </div>
       </div>
 
-      <button 
-        onClick={() => fetchUsage(true)} 
-        disabled={isLoading}
-        style={styles.refreshButton}
-      >
-        <RefreshCw size={18} style={{ marginRight: '10px' }} />
-        {isLoading ? 'Refreshing...' : 'Refresh Data'}
-      </button>
+      <div style={styles.buttonGroup}>
+        <button 
+          onClick={() => fetchUsage(true)} 
+          disabled={loading}
+          style={styles.refreshButton}
+        >
+          <RefreshCw size={18} style={{ marginRight: '8px' }} />
+          {loading ? 'Refreshing...' : 'Refresh Data'}
+        </button>
+
+        <button onClick={resetUsage} style={styles.resetButton}>
+          <RotateCcw size={18} style={{ marginRight: '8px' }} />
+          Reset Usage (Dev)
+        </button>
+      </div>
     </div>
   );
 };
 
 const styles = {
-  header: {
-    marginBottom: '40px',
-  },
+  header: { marginBottom: '40px' },
   pageTitle: {
     fontSize: '32px',
     fontWeight: '700',
@@ -154,7 +184,6 @@ const styles = {
     marginBottom: '20px',
     color: '#4b5563',
     fontWeight: '600',
-    fontSize: '15px',
   },
   stat: {
     margin: '0 0 8px 0',
@@ -167,11 +196,15 @@ const styles = {
     margin: 0,
     fontSize: '15px',
   },
+  buttonGroup: {
+    display: 'flex',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
   refreshButton: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: '14px 28px',
+    padding: '14px 24px',
     backgroundColor: '#4f46e5',
     color: 'white',
     border: 'none',
@@ -179,7 +212,18 @@ const styles = {
     fontSize: '16px',
     fontWeight: '600',
     cursor: 'pointer',
-    width: 'fit-content',
+  },
+  resetButton: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '14px 24px',
+    backgroundColor: '#f59e0b',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
   },
 };
 
