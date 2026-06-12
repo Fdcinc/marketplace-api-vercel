@@ -55,7 +55,6 @@ const Dashboard = ({ token }) => {
     }
   }, [token]);
 
-  // Your preferred pattern with hasFetched
   useEffect(() => {
     if (!hasFetched.current) {
       fetchUsage();
@@ -79,7 +78,7 @@ const Dashboard = ({ token }) => {
       const json = await response.json();
       if (json.success) {
         alert(`✅ Usage reset successfully!\n\nCurrent Usage: 0\nLimit: 1000 requests`);
-        fetchUsage(false); // Refresh without full loading
+        fetchUsage(false);
       } else {
         alert(json.error || 'Failed to reset usage');
       }
