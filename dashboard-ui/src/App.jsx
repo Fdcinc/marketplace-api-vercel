@@ -56,7 +56,6 @@ const styles = {
   appContainer: {
     display: 'flex',
     minHeight: '100vh',
-    background: '#f8fafc',
     fontFamily: 'Inter, system-ui, sans-serif',
   },
   mainContent: {
