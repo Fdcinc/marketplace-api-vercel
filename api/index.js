@@ -17,7 +17,7 @@ app.use(cors({
     'http://localhost:3000'
   ],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-platform-secret'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-platform-secret', 'x-auth-source'],
   credentials: true
 }));
 

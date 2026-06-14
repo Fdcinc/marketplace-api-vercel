@@ -1,7 +1,14 @@
 const jwt = require('jsonwebtoken');
+const { auth } = require('express-oauth2-jwt-bearer');
 const User = require('../models/users');
 const Blacklist = require('../models/blacklist');
 const connectDB = require('../config/db');
+
+// 1. Setup Auth0 Validator
+const validateAuth0 = auth({
+  audience: 'https://api.marketplace.com',
+  issuerBaseURL: `https://dev-ko4dlaqiz2jjixch.us.auth0.com/`,
+});
 
 const verifyGateway = (req, res, next) => {
   const gatewaySecret = req.headers['x-platform-secret'];
@@ -9,10 +16,7 @@ const verifyGateway = (req, res, next) => {
 
   if (!gatewaySecret || gatewaySecret !== expectedSecret) {
     console.log("❌ Gateway Secret Mismatch");
-    return res.status(403).json({ 
-      success: false, 
-      error: 'Access Denied: Invalid platform secret' 
-    });
+    return res.status(403).json({ success: false, error: 'Access Denied: Invalid platform secret' });
   }
   next();
 };
@@ -20,50 +24,44 @@ const verifyGateway = (req, res, next) => {
 const protect = async (req, res, next) => {
   try {
     await connectDB();
-
     const authHeader = req.headers.authorization;
-    console.log('🔐 Auth Header received:', authHeader ? authHeader.substring(0, 70) + '...' : 'MISSING');
-
-    let token = authHeader?.startsWith('Bearer ') 
-                ? authHeader.split(' ')[1] 
-                : null;
+    
+    // Extract token safely
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
 
     if (!token) {
-      console.log('❌ No token provided');
-      return res.status(401).json({ error: 'No token provided' });
+        return res.status(401).json({ error: 'No valid Bearer token provided' });
     }
 
-    // Verify JWT
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtErr) {
-      console.error('❌ JWT Verify Error:', jwtErr.name, jwtErr.message);
-      if (jwtErr.name === 'TokenExpiredError') {
-        return res.status(401).json({ error: 'Token has expired. Please login again.' });
-      }
-      return res.status(401).json({ error: 'Invalid token' });
+    const isAuth0 = req.headers['x-auth-source'] === 'auth0';
+
+    if (isAuth0) {
+      return validateAuth0(req, res, async (err) => {
+        if (err) return res.status(401).json({ error: 'Auth0 token invalid' });
+        
+        const auth0Id = req.auth.payload.sub;
+        const currentUser = await User.findOne({ auth0Id }).select('-passwordHash');
+        if (!currentUser) return res.status(401).json({ error: 'User not found in DB' });
+        req.user = currentUser;
+        next();
+      });
+    } else {
+      // Legacy Path: token is already verified as existing above
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const currentUser = await User.findById(decoded.id).select('-passwordHash');
+      
+      if (!currentUser) return res.status(401).json({ error: 'User not found' });
+      req.user = currentUser;
+      next();
     }
-
-    const currentUser = await User.findById(decoded.id).select('-passwordHash');
-
-    if (!currentUser) {
-      console.log('❌ User not found for ID:', decoded.id);
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    req.user = currentUser;
-    console.log(`✅ Auth successful → ${currentUser.email} (${currentUser.role})`);
-    
-    next();
   } catch (err) {
-    console.error('❌ Protect Middleware Crash:', err.message);
+    console.error('❌ Auth Error:', err.message);
     res.status(401).json({ error: 'Authentication failed' });
   }
 };
 
 const restrictTo = (...roles) => (req, res, next) => {
-  if (!roles.includes(req.user.role)) {
+  if (!req.user || !roles.includes(req.user.role)) {
     return res.status(403).json({ success: false, error: 'Forbidden: Insufficient permissions' });
   }
   next();

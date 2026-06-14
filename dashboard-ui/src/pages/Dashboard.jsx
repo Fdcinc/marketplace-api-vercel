@@ -4,15 +4,26 @@ import { Activity, CreditCard, RefreshCw, RotateCcw } from 'lucide-react';
 const API_BASE_URL = 'http://localhost:5000';
 
 const Dashboard = ({ token }) => {
-  const [usageData, setUsageData] = useState({
-    quantity: 0,
-    amount_due: 0,
-    period_end: '--'
-  });
+  console.log('Dashboard component rendered with token:', token);
+  const [usageData, setUsageData] = useState({ quantity: 0, amount_due: 0, period_end: '--' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
   const hasFetched = useRef(false);
+
+  // Memoized helper to build headers dynamically
+  const getHeaders = useCallback(() => {
+    const authType = localStorage.getItem('auth_type');
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'x-platform-secret': 'my-marketplace-private-key-123',
+      'Content-Type': 'application/json'
+    };
+    
+    if (authType === 'auth0') {
+      headers['x-auth-source'] = 'auth0';
+    }
+    return headers;
+  }, [token]);
 
   const fetchUsage = useCallback(async (showLoading = true) => {
     if (!token) {
@@ -27,18 +38,11 @@ const Dashboard = ({ token }) => {
 
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/usage`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'x-platform-secret': 'my-marketplace-private-key-123',
-          'Content-Type': 'application/json'
-        }
+        headers: getHeaders()
       });
 
-      if (response.status === 429) {
-        setError("Rate limit reached (1000 requests). Please wait or upgrade your plan.");
-        return;
-      }
-
+      if (response.status === 401) throw new Error("Unauthorized: Please check your login session.");
+      if (response.status === 429) throw new Error("Rate limit reached.");
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const json = await response.json();
@@ -49,11 +53,11 @@ const Dashboard = ({ token }) => {
       }
     } catch (err) {
       console.error(err);
-      setError('Could not connect to backend. Is the server running?');
+      setError(err.message || 'Could not connect to backend.');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, getHeaders]); // Added getHeaders dependency
 
   useEffect(() => {
     if (!hasFetched.current) {
@@ -68,26 +72,21 @@ const Dashboard = ({ token }) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/reset-usage`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'x-platform-secret': 'my-marketplace-private-key-123',
-          'Content-Type': 'application/json'
-        }
+        headers: getHeaders()
       });
 
       const json = await response.json();
       if (json.success) {
-        alert(`✅ Usage reset successfully!\n\nCurrent Usage: 0\nLimit: 1000 requests`);
+        alert(`✅ Usage reset successfully!`);
         fetchUsage(false);
       } else {
         alert(json.error || 'Failed to reset usage');
       }
     } catch (err) {
       console.error('Reset usage error:', err);
-      alert('Error resetting usage. Is backend running?');
+      alert('Error resetting usage.');
     }
   };
-
   return (
     <div>
       <div style={styles.header}>

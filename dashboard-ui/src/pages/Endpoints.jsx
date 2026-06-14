@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const API_BASE_URL = 'http://localhost:5000';
 
@@ -7,7 +7,22 @@ const Endpoints = ({ token }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetch usage data (total hits, etc.)
+  // Memoized helper to build headers dynamically
+  const getHeaders = useCallback(() => {
+    const authType = localStorage.getItem('auth_type');
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'x-platform-secret': 'my-marketplace-private-key-123',
+      'Content-Type': 'application/json'
+    };
+    
+    if (authType === 'auth0') {
+      headers['x-auth-source'] = 'auth0';
+    }
+    return headers;
+  }, [token]);
+
+  // Fetch usage data
   useEffect(() => {
     const fetchUsage = async () => {
       if (!token) {
@@ -19,11 +34,7 @@ const Endpoints = ({ token }) => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/v1/auth/usage`, {
           method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'x-platform-secret': 'my-marketplace-private-key-123',
-            'Content-Type': 'application/json'
-          }
+          headers: getHeaders() // Using the dynamic header helper
         });
 
         if (!response.ok) throw new Error('Failed to fetch usage data');
@@ -36,14 +47,14 @@ const Endpoints = ({ token }) => {
         }
       } catch (err) {
         console.error(err);
-        setError('Could not connect to backend. Is it running?');
+        setError('Could not connect to backend.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchUsage();
-  }, [token]);
+  }, [token, getHeaders]); // Added getHeaders dependency
 
   const endpoints = [
     { method: 'POST', path: '/api/v1/auth/register', desc: 'Register a new user' },
