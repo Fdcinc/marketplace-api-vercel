@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const { protect, restrictTo, verifyGateway } = require('../middleware/auth');
+const { restrictTo, verifyGateway } = require('../middleware/auth');
+const { protect } = require('../middleware/authMiddleware');
 
 router.use(verifyGateway);
 

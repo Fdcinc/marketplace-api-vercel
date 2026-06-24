@@ -22,10 +22,13 @@ const App = () => {
   useEffect(() => {
     const fetchAuth0Token = async () => {
       if (isAuth0Authenticated) {
+        console.log("AUDIENCE BEING REQUESTED:", import.meta.env.VITE_AUTH0_AUDIENCE);
         try {
           const token = await getAccessTokenSilently({
             authorizationParams: {
               audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+              // ADD THIS: Request identity scopes explicitly
+              scope: "openid profile email" 
             }
           });
           setAuth0Token(token);

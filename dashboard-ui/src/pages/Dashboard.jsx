@@ -1,16 +1,14 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Activity, CreditCard, RefreshCw, RotateCcw } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:5000';
 
 const Dashboard = ({ token }) => {
-  console.log('Dashboard component rendered with token:', token);
   const [usageData, setUsageData] = useState({ quantity: 0, amount_due: 0, period_end: '--' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const hasFetched = useRef(false);
 
-  // Memoized helper to build headers dynamically
+  // Memoized header builder
   const getHeaders = useCallback(() => {
     const authType = localStorage.getItem('auth_type');
     const headers = {
@@ -18,13 +16,13 @@ const Dashboard = ({ token }) => {
       'x-platform-secret': 'my-marketplace-private-key-123',
       'Content-Type': 'application/json'
     };
-    
     if (authType === 'auth0') {
       headers['x-auth-source'] = 'auth0';
     }
     return headers;
   }, [token]);
 
+  // Fetch logic with encapsulated state management
   const fetchUsage = useCallback(async (showLoading = true) => {
     if (!token) {
       setError("No authentication token found. Please login again.");
@@ -32,17 +30,16 @@ const Dashboard = ({ token }) => {
       return;
     }
 
-    try {
-      if (showLoading) setLoading(true);
-      setError(null);
+    if (showLoading) setLoading(true);
+    setError(null);
 
+    try {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/usage`, {
         method: 'GET',
         headers: getHeaders()
       });
 
       if (response.status === 401) throw new Error("Unauthorized: Please check your login session.");
-      if (response.status === 429) throw new Error("Rate limit reached.");
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const json = await response.json();
@@ -52,18 +49,19 @@ const Dashboard = ({ token }) => {
         setError(json.error || 'Failed to load data');
       }
     } catch (err) {
-      console.error(err);
       setError(err.message || 'Could not connect to backend.');
     } finally {
       setLoading(false);
     }
-  }, [token, getHeaders]); // Added getHeaders dependency
+  }, [token, getHeaders]);
 
+  // Trigger fetch with a 500ms delay to ensure stable UI mounting
   useEffect(() => {
-    if (!hasFetched.current) {
-      fetchUsage();
-      hasFetched.current = true;
-    }
+    const timer = setTimeout(() => {
+      fetchUsage(true);
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, [fetchUsage]);
 
   const resetUsage = async () => {

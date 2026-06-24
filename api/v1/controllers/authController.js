@@ -150,28 +150,56 @@ exports.getMe = async (req, res) => {
 };
 
 exports.getUsage = async (req, res) => {
-  console.log(`📥 Fetching dashboard data for User ID: ${req.user.id}`);
-  await connectDB();
-  const user = await User.findById(req.user.id);
+  // Use a fallback to ensure we have a valid ID regardless of how the middleware set it
+  const userId = req.user?.id || req.user?._id;
+
+  if (!userId) {
+    console.error("❌ GetUsage Error: No User ID found in request object.");
+    return res.status(401).json({ success: false, error: "Unauthorized: User ID missing" });
+  }
+
+  console.log(`📥 Fetching dashboard data for User ID: ${userId}`);
   
-  if (!user || !user.stripeCustomerId) {
-     console.log("ℹ️ GetUsage: No user/Stripe ID, returning zeros.");
-     return res.json({ success: true, data: { amount_due: 0, quantity: 0, currency: 'EUR', period_end: '--' }});
-  }
-
-  console.log(`🔎 Querying Stripe for customer: ${user.stripeCustomerId}`);
-  let amountDue = 0, currency = 'EUR', periodEnd = '--';
+  await connectDB();
+  
   try {
-    const inv = await stripe.invoices.retrieveUpcoming({ customer: user.stripeCustomerId });
-    amountDue = (inv.amount_remaining || 0) / 100;
-    currency = (inv.currency || 'EUR').toUpperCase();
-    periodEnd = new Date(inv.next_payment_attempt * 1000).toLocaleDateString();
-    console.log(`💰 Stripe Invoice Found: ${amountDue} ${currency}`);
-  } catch (e) { 
-    console.log("ℹ️ GetUsage: No upcoming invoice found (Normal for new users)."); 
-  }
+    const user = await User.findById(userId);
+    
+    if (!user || !user.stripeCustomerId) {
+       console.log("ℹ️ GetUsage: No user/Stripe ID found, returning zeros.");
+       return res.json({ 
+         success: true, 
+         data: { amount_due: 0, quantity: 0, currency: 'EUR', period_end: '--' } 
+       });
+    }
 
-  res.json({ success: true, data: { amount_due: amountDue, currency, quantity: user.currentUsage || 0, period_end: periodEnd } });
+    console.log(`🔎 Querying Stripe for customer: ${user.stripeCustomerId}`);
+    let amountDue = 0, currency = 'EUR', periodEnd = '--';
+    
+    try {
+      const inv = await stripe.invoices.retrieveUpcoming({ customer: user.stripeCustomerId });
+      amountDue = (inv.amount_remaining || 0) / 100;
+      currency = (inv.currency || 'EUR').toUpperCase();
+      periodEnd = new Date(inv.next_payment_attempt * 1000).toLocaleDateString();
+      console.log(`💰 Stripe Invoice Found: ${amountDue} ${currency}`);
+    } catch (e) { 
+      console.log("ℹ️ GetUsage: No upcoming invoice found (Normal for new users)."); 
+    }
+
+    res.json({ 
+      success: true, 
+      data: { 
+        amount_due: amountDue, 
+        currency, 
+        quantity: user.currentUsage || 0, 
+        period_end: periodEnd 
+      } 
+    });
+    
+  } catch (err) {
+    console.error("❌ GetUsage Database Error:", err.message);
+    res.status(500).json({ success: false, error: "Internal Server Error" });
+  }
 };
 
 exports.resetUsage = async (req, res) => {
@@ -216,4 +244,36 @@ exports.deleteMe = async (req, res) => {
   await connectDB();
   await User.findByIdAndUpdate(req.user.id, { status: 'inactive' });
   res.status(204).json({ success: true });
+};
+
+// Add this logic to your Auth flow to ensure new accounts are created
+// --- JIT PROVISIONING (Link Auth0 to MongoDB) ---
+exports.syncAuth0User = async (req, res) => {
+  await connectDB();
+  try {
+    // This assumes your auth middleware already placed the Auth0 profile in req.user
+    const { email, name } = req.user; 
+    const normalizedEmail = email.toLowerCase().trim();
+
+    let user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      console.log(`👤 JIT Provisioning: New user detected, creating record for ${normalizedEmail}`);
+      user = await User.create({ 
+        name: name || 'New User', 
+        email: normalizedEmail, 
+        passwordHash: 'AUTH0_MANAGED_ACCOUNT' 
+      });
+      await ensureStripeCustomer(user);
+    }
+
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+module.exports = {
+  ...module.exports, // Keeps existing exports
+  ensureStripeCustomer
 };

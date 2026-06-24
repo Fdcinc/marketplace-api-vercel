@@ -55,10 +55,17 @@ const Login = ({ onCustomLoginSuccess }) => {
         </div>
 
         {/* Auth0 Login */}
-        <button onClick={loginWithRedirect} style={styles.auth0Button}>
-          <User size={20} />
-          Sign in with Auth0
-        </button>
+    <button 
+        onClick={() => loginWithRedirect({
+          authorizationParams: {
+            scope: "openid profile email"
+          }
+        })} 
+        style={styles.auth0Button}
+      >
+    <User size={20} />
+    Sign in with Auth0
+    </button>
 
         <div style={styles.divider}>
           <span>OR</span>
