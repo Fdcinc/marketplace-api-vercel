@@ -16,6 +16,21 @@ const UserSchema = new mongoose.Schema({
     required: true, 
     select: false 
   },
+
+  isTrial: { 
+    type: Boolean,
+    default: true 
+  },
+
+  trialRequestsUsed: {
+    type: Number,
+    default: 0,
+  },
+
+  trialLimit: {
+    type: Number,
+    default: 1000,
+  },
   
   // ──── MARKETPLACE DATA ────
   interestedCategoryIds: [{ 
@@ -50,11 +65,14 @@ const UserSchema = new mongoose.Schema({
   stripeCustomerId: { 
     type: String, 
     unique: true, 
-    sparse: true // Allows multiple users to have 'null' while ensuring IDs stay unique
+    sparse: true 
   },
   stripeSubscriptionId: { type: String },
-
-  // ADD THESE THREE FIELDS BELOW:
+  credits: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   currentUsage: { 
     type: Number, 
     default: 0,
@@ -68,7 +86,7 @@ const UserSchema = new mongoose.Schema({
     type: String, 
     unique: true, 
     sparse: true,
-    select: false // Keep it hidden by default for security
+    select: false 
   },
   
   // ──── AUDIT & RECOVERY ────

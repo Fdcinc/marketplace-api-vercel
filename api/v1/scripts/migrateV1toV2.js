@@ -37,7 +37,8 @@ const migrateToV2 = async () => {
             twoFactorEnabled: false,
             emailVerified: false,
             loginAttempts: 0,
-            status: 'active'
+            status: 'active',
+            credits: 0
           }
         }
       );

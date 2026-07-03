@@ -6,6 +6,7 @@ const cors = require('cors');
 const connectDB = require('./v1/config/db');
 const authRoutes = require('./v1/routes/auth');
 const authController = require('./v1/controllers/authController');
+const agentRoutes = require('./v1/routes/agent');
 
 const app = express();
 
@@ -33,7 +34,7 @@ app.use(express.json());
 
 // ====================== ROUTES ======================
 app.use('/api/v1/auth', authRoutes);
-
+app.use('/api/v1/agent', agentRoutes);
 app.get('/', (req, res) => {
   res.json({ message: "Marketplace API is running locally" });
 });

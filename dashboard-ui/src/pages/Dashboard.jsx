@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Activity, CreditCard, RefreshCw, RotateCcw } from 'lucide-react';
+import { BillingChat } from '../components/BillingChat';
 
 const API_BASE_URL = 'http://localhost:5000';
 
@@ -134,6 +135,9 @@ const Dashboard = ({ token }) => {
           <RotateCcw size={18} style={{ marginRight: '8px' }} />
           Reset Usage (Dev)
         </button>
+      </div>
+      <div style={{ marginTop: '40px' }}>
+       <BillingChat token={token} />
       </div>
     </div>
   );

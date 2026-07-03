@@ -45,21 +45,36 @@ exports.handleStripeWebhook = async (req, res) => {
 
   console.log(`🔔 Webhook received: ${event.type}`);
 
+  // 1. Existing Metering Update
   if (event.type === 'billing.meter.summary_updated') {
     const summary = event.data.object;
-    console.log(`📊 Stripe Meter Update: Customer ${summary.customer} reached ${summary.aggregate_value}`);
-    
     await connectDB();
     const updatedUser = await User.findOneAndUpdate(
       { stripeCustomerId: summary.customer },
       { currentUsage: summary.aggregate_value, usageLastUpdated: new Date() },
       { returnDocument: 'after' }
     );
-
+    if (updatedUser) console.log(`✅ MongoDB Synced Usage: ${updatedUser.email}`);
+  } 
+  
+  // 2. NEW: Handle Credit Pack Purchases
+  else if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    
+    // Ensure we only process if this was a credit pack purchase
+    // You can check session.metadata or simply apply logic here
+    await connectDB();
+    const updatedUser = await User.findOneAndUpdate(
+      { stripeCustomerId: session.customer },
+      { $inc: { credits: 1000 } }, // Adds 1000 credits to the user's balance
+      { returnDocument: 'after' }
+    );
+    
     if (updatedUser) {
-      console.log(`✅ MongoDB Synced: ${updatedUser.email} local count updated to ${summary.aggregate_value}`);
+      console.log(`💰 Credits added to ${updatedUser.email}. New balance: ${updatedUser.credits}`);
     }
   }
+
   res.json({ received: true });
 };
 
@@ -73,7 +88,7 @@ exports.register = async (req, res) => {
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) return res.status(400).json({ success: false, error: 'Email already exists' });
 
-    const user = await User.create({ name, email: normalizedEmail, passwordHash: password });
+    const user = await User.create({ name, email: normalizedEmail, passwordHash: password, credits: 1000 });
     await ensureStripeCustomer(user);
 
     const token = signToken(user._id);
@@ -108,32 +123,43 @@ exports.login = async (req, res) => {
 // --- MIDDLEWARE ---
 exports.trackUsage = async (req, res, next) => {
   try {
-    if (!req.user) {
-        console.log("ℹ️ TrackUsage: No user found on request, skipping.");
-        return next();
-    }
+    // 1. FREE PATHS
+    const freeRoutes = ['/api/v1/auth/me', '/api/v1/auth/usage'];
+    if (freeRoutes.includes(req.originalUrl)) return next();
+
+    if (!req.user) return next();
     
     await connectDB();
     const user = await User.findById(req.user.id);
     if (!user) return next();
 
-    console.log(`🔍 Tracking usage for ${user.email}...`);
-    await ensureStripeCustomer(user);
-
-    const HARD_LIMIT = parseInt(process.env.USAGE_HARD_LIMIT) || 1000;
-    if ((user.currentUsage || 0) >= HARD_LIMIT) {
-      console.log(`🚫 Guardrail: ${user.email} blocked at ${user.currentUsage}`);
-      return res.status(429).json({ success: false, error: 'Limit reached.' });
+    // 2. TRIAL LOGIC
+    if (user.isTrial) {
+      if (user.trialRequestsUsed < user.trialLimit) {
+        // Increment trial usage
+        await User.findByIdAndUpdate(user._id, { $inc: { trialRequestsUsed: 1 } });
+        console.log(`✅ Trial usage for ${user.email}: ${user.trialRequestsUsed + 1}/${user.trialLimit}`);
+        return next();
+      } else {
+        // Trial finished: Move to paid path or block
+        await User.findByIdAndUpdate(user._id, { isTrial: false });
+        // Fall through to standard credit check if they have migrated
+      }
     }
 
-    console.log(`📡 Sending 'api_request' event to Stripe for ${user.stripeCustomerId}...`);
+    // 3. PAID GUARDRAIL: Block if no credits
+    if ((user.credits || 0) <= 0) {
+      console.log(`🚫 Blocked: ${user.email} has no credits.`);
+      return res.status(402).json({ success: false, error: 'Insufficient credits. Please top up.' });
+    }
+
+    // 4. TRACKING: Only for paid requests
     stripe.billing.meterEvents.create({
       event_name: 'api_request',
       payload: { stripe_customer_id: user.stripeCustomerId, value: '1' },
     }).catch(e => console.error("❌ Stripe Ingestion Error:", e.message));
 
-    const updatedUser = await User.findByIdAndUpdate(req.user.id, { $inc: { currentUsage: 1 } }, { returnDocument: 'after' });
-    console.log(`💾 Local Cache Updated: ${updatedUser.email} count is now ${updatedUser.currentUsage}`);
+    await User.findByIdAndUpdate(req.user.id, { $inc: { credits: -1, currentUsage: 1 } });
     
     next();
   } catch (err) {

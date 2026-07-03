@@ -15,7 +15,7 @@ router.get('/me', protect, authController.trackUsage, authController.getMe);
 router.get('/data', protect, authController.trackUsage, (req, res) => {
     res.json({ success: true, data: "Metered data delivered!" });
 });
-router.get('/usage', protect, authController.trackUsage, authController.getUsage);
+router.get('/usage', protect, authController.getUsage);
 router.post('/reset-usage', protect, authController.resetUsage);
 
 router.get('/all-users', protect, restrictTo('admin', 'superadmin'), authController.getAllUsers);
