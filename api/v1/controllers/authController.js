@@ -122,6 +122,7 @@ exports.login = async (req, res) => {
 
 // --- MIDDLEWARE ---
 exports.trackUsage = async (req, res, next) => {
+  console.log("DEBUG: trackUsage middleware running for route ", req.originalUrl);
   try {
     // 1. FREE PATHS
     const freeRoutes = ['/api/v1/auth/me', '/api/v1/auth/usage'];
@@ -171,8 +172,23 @@ exports.trackUsage = async (req, res, next) => {
 // --- REMAINING METHODS ---
 exports.getMe = async (req, res) => {
   await connectDB();
-  const user = await User.findById(req.user.id).select('-passwordHash');
-  res.json({ success: true, user });
+  const user = await User.findById(req.user.id)
+    .select('-passwordHash')
+    .lean();
+
+  if (!user) {
+    return res.status(404).json({ success: false, error: 'User not found' });
+  }
+
+  // Calculate fields dynamically
+  const userData = {
+    ...user,
+    isTrial: user.isTrial ?? true,
+    trialRemaining: Math.max(0, (user.trialLimit || 1000) - (user.trialRequestsUsed || 0)),
+  };
+
+  // Send userData instead of user
+  res.json({ success: true, user: userData });
 };
 
 exports.getUsage = async (req, res) => {
@@ -190,6 +206,11 @@ exports.getUsage = async (req, res) => {
   
   try {
     const user = await User.findById(userId);
+
+    const isTrial = user.isTrial ?? true;
+    const trialLimit = user.trialLimit || 1000;
+    const trialRequestsUsed = user.trialRequestsUsed || 0;
+    const trialRemaining = Math.max(0, trialLimit - trialRequestsUsed);
     
     if (!user || !user.stripeCustomerId) {
        console.log("ℹ️ GetUsage: No user/Stripe ID found, returning zeros.");
@@ -218,6 +239,10 @@ exports.getUsage = async (req, res) => {
         amount_due: amountDue, 
         currency, 
         quantity: user.currentUsage || 0, 
+        credits: user.credits || 0,
+        isTrial,
+        trialRemaining,
+        trialLimit,
         period_end: periodEnd 
       } 
     });

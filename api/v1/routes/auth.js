@@ -11,7 +11,7 @@ router.post('/login', authController.login);
 router.post('/logout', protect, authController.logout);
 
 // Usage tracking applied to billable routes
-router.get('/me', protect, authController.trackUsage, authController.getMe);
+router.get('/me', protect, authController.getMe);
 router.get('/data', protect, authController.trackUsage, (req, res) => {
     res.json({ success: true, data: "Metered data delivered!" });
 });

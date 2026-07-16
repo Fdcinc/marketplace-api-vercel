@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Activity, CreditCard, RefreshCw, RotateCcw } from 'lucide-react';
 import { BillingChat } from '../components/BillingChat';
 
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = 'http://localhost:8000';
 
 const Dashboard = ({ token }) => {
   const [usageData, setUsageData] = useState({ quantity: 0, amount_due: 0, period_end: '--' });
@@ -86,7 +86,7 @@ const Dashboard = ({ token }) => {
       alert('Error resetting usage.');
     }
   };
-  return (
+ return (
     <div>
       <div style={styles.header}>
         <div>
@@ -98,6 +98,26 @@ const Dashboard = ({ token }) => {
       {error && <div style={styles.errorBanner}>{error}</div>}
 
       <div style={styles.grid}>
+        {/* Trial Status Card */}
+        {usageData.isTrial && (
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <Activity size={24} color="#f59e0b" />
+              <span>Trial Status</span>
+            </div>
+            <h2 style={styles.stat}>
+              {loading ? '...' : usageData.trialRemaining}
+            </h2>
+            <p style={styles.subtext}>Requests remaining of {usageData.trialLimit}</p>
+            <div style={styles.progressContainer}>
+              <div style={{ 
+                ...styles.progressBar, 
+                width: `${Math.min(100, ((usageData.trialLimit - usageData.trialRemaining) / usageData.trialLimit) * 100)}%` 
+              }}></div>
+            </div>
+          </div>
+        )}
+
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <Activity size={24} color="#4f46e5" />
@@ -122,11 +142,7 @@ const Dashboard = ({ token }) => {
       </div>
 
       <div style={styles.buttonGroup}>
-        <button 
-          onClick={() => fetchUsage(true)} 
-          disabled={loading}
-          style={styles.refreshButton}
-        >
+        <button onClick={() => fetchUsage(true)} disabled={loading} style={styles.refreshButton}>
           <RefreshCw size={18} style={{ marginRight: '8px' }} />
           {loading ? 'Refreshing...' : 'Refresh Data'}
         </button>
@@ -136,8 +152,9 @@ const Dashboard = ({ token }) => {
           Reset Usage (Dev)
         </button>
       </div>
+
       <div style={{ marginTop: '40px' }}>
-       <BillingChat token={token} />
+        <BillingChat token={token} />
       </div>
     </div>
   );
@@ -145,86 +162,19 @@ const Dashboard = ({ token }) => {
 
 const styles = {
   header: { marginBottom: '40px' },
-  pageTitle: {
-    fontSize: '32px',
-    fontWeight: '700',
-    color: '#1f2937',
-    margin: '0 0 8px 0',
-  },
-  subtitle: {
-    color: '#6b7280',
-    fontSize: '16px',
-    margin: 0,
-  },
-  errorBanner: {
-    backgroundColor: '#fef2f2',
-    color: '#dc2626',
-    padding: '14px 20px',
-    borderRadius: '10px',
-    marginBottom: '24px',
-    border: '1px solid #fecaca',
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-    gap: '24px',
-    marginBottom: '40px',
-  },
-  card: {
-    backgroundColor: '#ffffff',
-    padding: '32px',
-    borderRadius: '16px',
-    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-    border: '1px solid #e5e7eb',
-  },
-  cardHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    marginBottom: '20px',
-    color: '#4b5563',
-    fontWeight: '600',
-  },
-  stat: {
-    margin: '0 0 8px 0',
-    fontSize: '48px',
-    fontWeight: '700',
-    color: '#1f2937',
-  },
-  subtext: {
-    color: '#6b7280',
-    margin: 0,
-    fontSize: '15px',
-  },
-  buttonGroup: {
-    display: 'flex',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
-  refreshButton: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '14px 24px',
-    backgroundColor: '#4f46e5',
-    color: 'white',
-    border: 'none',
-    borderRadius: '10px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  resetButton: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '14px 24px',
-    backgroundColor: '#f59e0b',
-    color: 'white',
-    border: 'none',
-    borderRadius: '10px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
+  pageTitle: { fontSize: '32px', fontWeight: '700', color: '#1f2937', margin: '0 0 8px 0' },
+  subtitle: { color: '#6b7280', fontSize: '16px', margin: 0 },
+  errorBanner: { backgroundColor: '#fef2f2', color: '#dc2626', padding: '14px 20px', borderRadius: '10px', marginBottom: '24px', border: '1px solid #fecaca' },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '24px', marginBottom: '40px' },
+  card: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', border: '1px solid #e5e7eb' },
+  cardHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', color: '#4b5563', fontWeight: '600' },
+  stat: { margin: '0 0 8px 0', fontSize: '48px', fontWeight: '700', color: '#1f2937' },
+  subtext: { color: '#6b7280', margin: 0, fontSize: '15px' },
+  buttonGroup: { display: 'flex', gap: '12px', flexWrap: 'wrap' },
+  refreshButton: { display: 'flex', alignItems: 'center', padding: '14px 24px', backgroundColor: '#4f46e5', color: 'white', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' },
+  resetButton: { display: 'flex', alignItems: 'center', padding: '14px 24px', backgroundColor: '#f59e0b', color: 'white', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' },
+  progressContainer: { width: '100%', backgroundColor: '#e5e7eb', borderRadius: '10px', height: '10px', marginTop: '20px', overflow: 'hidden' },
+  progressBar: { backgroundColor: '#f59e0b', height: '100%', transition: 'width 0.5s ease-in-out' }
 };
 
 export default Dashboard;

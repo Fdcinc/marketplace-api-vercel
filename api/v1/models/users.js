@@ -31,6 +31,11 @@ const UserSchema = new mongoose.Schema({
     type: Number,
     default: 1000,
   },
+
+  credits: {
+    type: Number,
+    default: 0,
+  },
   
   // ──── MARKETPLACE DATA ────
   interestedCategoryIds: [{ 
