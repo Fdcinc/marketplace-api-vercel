@@ -1,12 +1,11 @@
 /**
  * @file middleware/authMiddleware.js
- * @description Primary authentication middleware.
- * Supports Auth0 (long tokens) and legacy local JWT.
+ * @description Consolidated primary authentication and gateway middleware.
+ * Supports Auth0 (long tokens / header flag) and legacy local JWT.
  * Performs JIT user creation + Stripe sync on first Auth0 login.
- * Integrates express-rate-limit for production-grade rate limiting with automatic cleanup.
+ * Integrates express-rate-limit, role-based restriction, and API gateway validation.
  * 
  * @requires jwt, express-oauth2-jwt-bearer, auth0 UserInfoClient, express-rate-limit
- * @note Ensure 'express-rate-limit' is installed via npm install express-rate-limit
  */
 const jwt = require('jsonwebtoken');
 const { auth } = require('express-oauth2-jwt-bearer');
@@ -14,11 +13,11 @@ const { verifyToken } = require('../services/tokenManager');
 const { UserInfoClient } = require('auth0');
 const rateLimit = require('express-rate-limit');
 const User = require('../models/users');
-const connectDB = require('../config/db'); // Import your connection helper
+const connectDB = require('../config/db');
 const { ensureStripeCustomer } = require('../controllers/authController'); 
 
 const checkAuth0Jwt = auth({
-  audience: process.env.AUTH0_AUDIENCE,
+  audience: process.env.AUTH0_AUDIENCE || 'https://api.marketplace.com',
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}/`,
 });
 
@@ -26,13 +25,12 @@ const userInfoClient = new UserInfoClient({ domain: process.env.AUTH0_DOMAIN });
 
 /**
  * Production-grade rate limiter for authentication endpoints (login/register/JIT).
- * Uses express-rate-limit to handle memory windows and automatic cleanup.
  */
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // Limit each IP to 5 requests per windowMs
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
   message: {
     success: false,
     error: 'Too many authentication attempts from this IP, please try again after 15 minutes'
@@ -41,8 +39,38 @@ const authRateLimiter = rateLimit({
 
 exports.authLimiter = authRateLimiter;
 
+/**
+ * Gateway validation middleware to protect downstream internal services.
+ */
+const verifyGateway = (req, res, next) => {
+  const gatewaySecret = req.headers['x-platform-secret'];
+  const expectedSecret = process.env.GATEWAY_SECRET || 'my-marketplace-private-key-123';
+
+  if (!gatewaySecret || gatewaySecret !== expectedSecret) {
+    console.warn("❌ Gateway Secret Mismatch");
+    return res.status(403).json({ success: false, error: 'Access Denied: Invalid platform secret' });
+  }
+  next();
+};
+
+exports.verifyGateway = verifyGateway;
+
+/**
+ * Role-based access control middleware.
+ */
+const restrictTo = (...roles) => (req, res, next) => {
+  if (!req.user || !roles.includes(req.user.role)) {
+    return res.status(403).json({ success: false, error: 'Forbidden: Insufficient permissions' });
+  }
+  next();
+};
+
+exports.restrictTo = restrictTo;
+
+/**
+ * Consolidated primary protection middleware handling Auth0 (with JIT provisioning) and local JWTs.
+ */
 exports.protect = async (req, res, next) => {
-  // CRITICAL: Ensure database connection is ready before any logic
   await connectDB(); 
 
   try {
@@ -52,7 +80,7 @@ exports.protect = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const isAuth0Token = token.length > 250;
+    const isAuth0Token = token.length > 250 || req.headers['x-auth-source'] === 'auth0';
 
     if (isAuth0Token) {
       // --- AUTH0 FLOW ---
@@ -63,7 +91,6 @@ exports.protect = async (req, res, next) => {
         }
         
         try {
-          // Improved email extraction using the explicitly captured raw token scope
           const payload = req.auth.payload;
           let email = payload['https://api.marketplace.com/email'] || 
                      payload.email || 
@@ -84,7 +111,7 @@ exports.protect = async (req, res, next) => {
             await ensureStripeCustomer(user);
           }
 
-          req.user = { id: user._id.toString() };
+          req.user = user;
           next();
         } catch (e) {
           console.error("Auth0 Processing Error:", e.message);
@@ -99,10 +126,10 @@ exports.protect = async (req, res, next) => {
           console.error("Local JWT Error:", error);
           return res.status(401).json({ success: false, error: 'Invalid local token' });
         }
-        const user = await User.findById(decoded.id);
+        const user = await User.findById(decoded.id).select('-passwordHash');
         if (!user) return res.status(401).json({ success: false, error: 'User does not exist' });
 
-        req.user = { id: user._id.toString() };
+        req.user = user;
         next();
       } catch (innerErr) {
         console.error("Local JWT Execution Error:", innerErr.message);
