@@ -1,3 +1,8 @@
+/**
+ * @file middleware/auth.js (Legacy/Alternative)
+ * @description Authentication with platform gateway secret.
+ * @deprecated Prefer authMiddleware.js for unified flow.
+ */
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
