@@ -73,11 +73,7 @@ const UserSchema = new mongoose.Schema({
     sparse: true 
   },
   stripeSubscriptionId: { type: String },
-  credits: {
-    type: Number,
-    default: 0,
-    min: 0
-  },
+  
   currentUsage: { 
     type: Number, 
     default: 0,
