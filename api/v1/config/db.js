@@ -1,4 +1,15 @@
 // config/db.js
+/**
+ * @file config/db.js
+ * @description MongoDB connection utility with connection caching.
+ * Supports serverless environments by reusing connections.
+ * 
+ * @requires mongoose
+ * @env MONGODB_URI
+ * 
+ * Usage: const connectDB = require('./config/db');
+ *        await connectDB();
+ */
 const mongoose = require('mongoose');
 
 const MONGODB_URI = process.env.MONGODB_URI;
