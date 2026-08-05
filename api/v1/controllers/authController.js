@@ -1,6 +1,7 @@
 /**
  * @file controllers/authController.js
- * @description Auth, usage metering, Stripe webhook & user management.
+ * @description Auth & user management only.
+ * Webhook → webhookController.js | Metering → middleware/trackUsage.js
  * Assumes MongoDB is already connected globally at app startup.
  */
 const User = require('../models/users');
@@ -13,64 +14,6 @@ const signToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
   });
-};
-
-// --- STRIPE WEBHOOK ---
-exports.handleStripeWebhook = async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    console.error(`⚠️ Webhook signature verification failed: ${err.message}`);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  console.log(`🔔 Webhook received: ${event.type}`);
-
-  try {
-    // 1. Metering update
-    if (event.type === 'billing.meter.summary_updated') {
-      const summary = event.data.object;
-      const updatedUser = await User.findOneAndUpdate(
-        { stripeCustomerId: summary.customer },
-        {
-          currentUsage: summary.aggregate_value,
-          usageLastUpdated: new Date(),
-        },
-        { returnDocument: 'after' }
-      );
-      if (updatedUser) {
-        console.log(`✅ MongoDB Synced Usage: ${updatedUser.email}`);
-      }
-    }
-    // 2. Credit pack purchases
-    else if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const creditsToAdd = Number(session.metadata?.credits) || 1000;
-
-      const updatedUser = await User.findOneAndUpdate(
-        { stripeCustomerId: session.customer },
-        { $inc: { credits: creditsToAdd } },
-        { returnDocument: 'after' }
-      );
-
-      if (updatedUser) {
-        console.log(
-          `💰 Credits (+${creditsToAdd}) added to ${updatedUser.email}. New balance: ${updatedUser.credits}`
-        );
-      }
-    }
-  } catch (err) {
-    console.error('❌ Webhook processing error:', err.message);
-  }
-
-  res.json({ received: true });
 };
 
 // --- AUTH LOGIC ---
@@ -147,68 +90,7 @@ exports.login = async (req, res) => {
   }
 };
 
-// --- MIDDLEWARE ---
-exports.trackUsage = async (req, res, next) => {
-  console.log('DEBUG: trackUsage middleware running for route', req.originalUrl);
-  try {
-    // Free paths
-    const freeRoutes = ['/api/v1/auth/me', '/api/v1/auth/usage'];
-    if (freeRoutes.includes(req.originalUrl)) return next();
-
-    if (!req.user) return next();
-
-    const user = await User.findById(req.user.id || req.user._id);
-    if (!user) return next();
-
-    // Trial logic
-    if (user.isTrial) {
-      if (user.trialRequestsUsed < user.trialLimit) {
-        await User.findByIdAndUpdate(user._id, {
-          $inc: { trialRequestsUsed: 1 },
-        });
-        console.log(
-          `✅ Trial usage for ${user.email}: ${user.trialRequestsUsed + 1}/${user.trialLimit}`
-        );
-        return next();
-      }
-      // Trial finished → switch to paid path
-      await User.findByIdAndUpdate(user._id, { isTrial: false });
-    }
-
-    // Paid guardrail
-    if ((user.credits || 0) <= 0) {
-      console.log(`🚫 Blocked: ${user.email} has no credits.`);
-      return res.status(402).json({
-        success: false,
-        error: 'Insufficient credits. Please top up.',
-      });
-    }
-
-    // Stripe meter event (fire-and-forget)
-    if (user.stripeCustomerId) {
-      stripe.billing.meterEvents
-        .create({
-          event_name: 'api_request',
-          payload: {
-            stripe_customer_id: user.stripeCustomerId,
-            value: '1',
-          },
-        })
-        .catch((e) => console.error('❌ Stripe Ingestion Error:', e.message));
-    }
-
-    await User.findByIdAndUpdate(user._id, {
-      $inc: { credits: -1, currentUsage: 1 },
-    });
-
-    next();
-  } catch (err) {
-    console.error('❌ TrackUsage Error:', err.message);
-    next();
-  }
-};
-
-// --- REMAINING METHODS ---
+// --- PROFILE / USAGE READS ---
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id || req.user._id)

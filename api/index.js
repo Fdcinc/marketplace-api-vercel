@@ -1,6 +1,7 @@
 /**
  * @file index.js
  * @description Marketplace API entry point with MPP (Machine Payments Protocol) support.
+ * MongoDB is connected globally once at startup.
  */
 
 const path = require('path');
@@ -13,7 +14,7 @@ const { Mppx, stripe: mppStripe } = require('mppx/express');
 
 const connectDB = require('./v1/config/db');
 const authRoutes = require('./v1/routes/auth');
-const authController = require('./v1/controllers/authController');
+const { handleStripeWebhook } = require('./v1/controllers/webhook'); // ✅ NEW
 const agentRoutes = require('./v1/routes/agent');
 const billingRoutes = require('./v1/routes/billing');
 
@@ -37,10 +38,11 @@ app.use(cors({
 }));
 
 // ====================== STRIPE WEBHOOK ======================
+// Must use raw body — register BEFORE express.json()
 app.post(
   '/api/v1/webhooks',
   express.raw({ type: 'application/json' }),
-  authController.handleStripeWebhook
+  handleStripeWebhook  // ✅ from webhookController
 );
 
 // ====================== MPP SETUP ======================
@@ -89,7 +91,7 @@ app.get('/', (req, res) => {
   res.json({ message: 'Marketplace API is running locally' });
 });
 
-// ====================== OPENAPI DISCOVERY (Forced / Reliable) ======================
+// ====================== OPENAPI DISCOVERY ======================
 app.get('/openapi.json', (req, res) => {
   res.json({
     openapi: '3.1.0',
@@ -137,12 +139,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: 'Internal Server Error' });
 });
 
-// ====================== START SERVER (global MongoDB first) ======================
+// ====================== START SERVER ======================
 const PORT = process.env.PORT || 5000;
 
 async function start() {
   try {
-    // Single global connection — all controllers/middleware reuse it
     await connectDB();
 
     if (process.env.NODE_ENV !== 'production') {
@@ -158,6 +159,5 @@ async function start() {
 }
 
 start();
-
 
 module.exports = app;

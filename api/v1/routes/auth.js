@@ -10,6 +10,34 @@ const {
   restrictTo,
   verifyGateway,
 } = require('../middleware/authMiddleware');
+const trackUsage = require('../middleware/trackUsage');
+
+// Guard: fail fast with a clear message if any handler is missing
+function assertFn(name, fn) {
+  if (typeof fn !== 'function') {
+    throw new TypeError(
+      `[auth routes] "${name}" is not a function (got ${typeof fn}). ` +
+        'Check that the module exports it correctly.'
+    );
+  }
+  return fn;
+}
+
+assertFn('protect', protect);
+assertFn('verifyGateway', verifyGateway);
+assertFn('restrictTo', restrictTo);
+assertFn('trackUsage', trackUsage);
+assertFn('authController.register', authController.register);
+assertFn('authController.login', authController.login);
+assertFn('authController.getMe', authController.getMe);
+assertFn('authController.getUsage', authController.getUsage);
+assertFn('authController.logout', authController.logout);
+assertFn('authController.resetUsage', authController.resetUsage);
+assertFn('authController.getAllUsers', authController.getAllUsers);
+assertFn('authController.updateMe', authController.updateMe);
+assertFn('authController.deleteMe', authController.deleteMe);
+assertFn('authController.updateUser', authController.updateUser);
+assertFn('authController.getUserById', authController.getUserById);
 
 // 1. Unauthenticated routes
 router.post('/register', authController.register);
@@ -23,7 +51,7 @@ router.get(
   '/data',
   verifyGateway,
   protect,
-  authController.trackUsage,
+  trackUsage,
   (req, res) => {
     res.json({ success: true, data: 'Metered data delivered!' });
   }
