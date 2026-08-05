@@ -15,6 +15,7 @@ const connectDB = require('./v1/config/db');
 const authRoutes = require('./v1/routes/auth');
 const authController = require('./v1/controllers/authController');
 const agentRoutes = require('./v1/routes/agent');
+const billingRoutes = require('./v1/routes/billing');
 
 const app = express();
 
@@ -82,6 +83,7 @@ app.use(express.json());
 // ====================== ROUTES ======================
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/agent', agentRoutes);
+app.use('/api/v1/billing', billingRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Marketplace API is running locally' });
@@ -135,14 +137,27 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: 'Internal Server Error' });
 });
 
-// ====================== START SERVER ======================
+// ====================== START SERVER (global MongoDB first) ======================
 const PORT = process.env.PORT || 5000;
 
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`✅ CORS allowed for http://localhost:5173`);
-  });
+async function start() {
+  try {
+    // Single global connection — all controllers/middleware reuse it
+    await connectDB();
+
+    if (process.env.NODE_ENV !== 'production') {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Server running on http://localhost:${PORT}`);
+        console.log(`✅ CORS allowed for http://localhost:5173`);
+      });
+    }
+  } catch (err) {
+    console.error('❌ Failed to start server:', err.message);
+    process.exit(1);
+  }
 }
+
+start();
+
 
 module.exports = app;
