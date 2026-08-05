@@ -1,3 +1,8 @@
+/**
+ * @file services/stripeService.js
+ * @description Stripe customer synchronization helpers.
+ * Assumes MongoDB is already connected globally.
+ */
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 exports.ensureStripeCustomer = async (user) => {
