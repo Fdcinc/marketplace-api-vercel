@@ -142,38 +142,104 @@ async function handleMeterSummaryUpdated(summary) {
   }
 }
 
-async function handleCheckoutSessionCompleted(session) {
-  if (!session.customer) {
-    console.warn('⚠️ checkout.session.completed missing customer — skip credits');
-    return;
+/**
+ * Resolve Mongo user for a Checkout session without throwing.
+ * Priority:
+ *   1. session.customer → User.stripeCustomerId
+ *   2. session.metadata.userId → User._id
+ *   3. customer_details / customer_email → User.email (skip known Stripe fixtures)
+ */
+async function resolveUserFromCheckoutSession(session) {
+  const sessionId = session.id || 'unknown';
+
+  if (session.customer) {
+    const byCustomer = await User.findOne({ stripeCustomerId: session.customer });
+    if (byCustomer) {
+      return { user: byCustomer, via: `stripeCustomerId=${session.customer}` };
+    }
+    console.warn(
+      `⚠️ No Mongo user for stripeCustomerId=${session.customer} (session ${sessionId})`
+    );
+  } else {
+    console.log(
+      `ℹ️ checkout.session.completed has no customer (session ${sessionId}) — trying metadata/email`
+    );
   }
+
+  const metaUserId = session.metadata?.userId;
+  if (metaUserId) {
+    const byId = await User.findById(metaUserId).catch(() => null);
+    if (byId) {
+      return { user: byId, via: `metadata.userId=${metaUserId}` };
+    }
+    console.warn(`⚠️ metadata.userId=${metaUserId} not found (session ${sessionId})`);
+  }
+
+  const email =
+    session.customer_details?.email ||
+    session.customer_email ||
+    null;
+
+  // Stripe CLI fixtures use stripe@example.com — never auto-credit those
+  const FIXTURE_EMAILS = new Set(['stripe@example.com', 'jenny.rosen@example.com']);
+  if (email && !FIXTURE_EMAILS.has(email.toLowerCase())) {
+    const byEmail = await User.findOne({ email: email.toLowerCase() });
+    if (byEmail) {
+      return { user: byEmail, via: `email=${email}` };
+    }
+    console.warn(`⚠️ No Mongo user for email=${email} (session ${sessionId})`);
+  } else if (email) {
+    console.log(`ℹ️ Ignoring fixture email ${email} (session ${sessionId})`);
+  }
+
+  return { user: null, via: null };
+}
+
+async function handleCheckoutSessionCompleted(session) {
+  const sessionId = session.id || 'unknown';
 
   if (session.mode && session.mode !== 'payment') {
-    console.log(`ℹ️ Skipping credits for checkout mode=${session.mode}`);
+    console.log(`ℹ️ Skipping credits for checkout mode=${session.mode} (session ${sessionId})`);
     return;
   }
 
-  const creditsToAdd = Number(session.metadata?.credits) || 1000;
+  if (session.payment_status && session.payment_status !== 'paid') {
+    console.log(
+      `ℹ️ Skipping credits: payment_status=${session.payment_status} (session ${sessionId})`
+    );
+    return;
+  }
+
+  const creditsRaw = session.metadata?.credits;
+  const creditsToAdd = creditsRaw != null ? Number(creditsRaw) : 1000;
   if (!Number.isFinite(creditsToAdd) || creditsToAdd <= 0) {
-    console.warn('⚠️ Invalid credits metadata — skip');
+    console.warn(`⚠️ Invalid credits metadata (${creditsRaw}) — skip (session ${sessionId})`);
     return;
   }
 
-  const updatedUser = await User.findOneAndUpdate(
-    { stripeCustomerId: session.customer },
+  const { user, via } = await resolveUserFromCheckoutSession(session);
+  if (!user) {
+    console.warn(
+      `⚠️ checkout.session.completed: no matching user — credits not applied (session ${sessionId})`
+    );
+    return; // graceful: still 200 from main handler
+  }
+
+  const updatedUser = await User.findByIdAndUpdate(
+    user._id,
     { $inc: { credits: creditsToAdd } },
     { returnDocument: 'after' }
   );
 
-  if (updatedUser) {
-    console.log(
-      `💰 Credits (+${creditsToAdd}) added to ${updatedUser.email}. New balance: ${updatedUser.credits}`
-    );
-  } else {
-    console.warn(
-      `⚠️ No user found for stripeCustomerId=${session.customer} (session ${session.id})`
-    );
+  // Backfill stripeCustomerId if session had one and user was missing it
+  if (session.customer && updatedUser && !updatedUser.stripeCustomerId) {
+    updatedUser.stripeCustomerId = session.customer;
+    await updatedUser.save();
   }
+
+  console.log(
+    `💰 Credits (+${creditsToAdd}) added to ${updatedUser.email} via ${via}. New balance: ${updatedUser.credits}`
+  );
 }
 
 // Exported for unit tests
