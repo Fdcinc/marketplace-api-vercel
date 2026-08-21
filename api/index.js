@@ -17,6 +17,7 @@ const { handleStripeWebhook } = require('./v1/controllers/webhook');
 const agentRoutes = require('./v1/routes/agent');
 const billingRoutes = require('./v1/routes/billing');
 const mppRoutes = require('./v1/routes/mpp');
+const mcpRoutes = require('./v1/routes/mcp');
 
 const app = express();
 
@@ -55,7 +56,7 @@ app.use(express.json());
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/agent', agentRoutes);
 app.use('/api/v1/billing', billingRoutes);
-
+app.use('/api/v1/mcp', mcpRoutes);
 app.get('/', (req, res) => {
   res.json({ message: 'Marketplace API is running locally' });
 });
