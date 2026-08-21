@@ -1,7 +1,6 @@
 /**
  * @file index.js
- * @description Marketplace API entry point with MPP (Machine Payments Protocol) support.
- * MongoDB is connected globally once at startup.
+ * @description Marketplace API entry point with MPP setup extracted to config.
  */
 
 const path = require('path');
@@ -9,12 +8,12 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const express = require('express');
 const cors = require('cors');
-const Stripe = require('stripe');
-const { Mppx, stripe: mppStripe } = require('mppx/express');
 
 const connectDB = require('./v1/config/db');
+const { mppx } = require('./v1/config/mpp'); // ✅ Imported from clean config file
+const { getOpenApiSpec } = require('./v1/config/openapi'); // ✅ Imported from clean config file
 const authRoutes = require('./v1/routes/auth');
-const { handleStripeWebhook } = require('./v1/controllers/webhook'); // ✅ NEW
+const { handleStripeWebhook } = require('./v1/controllers/webhook');
 const agentRoutes = require('./v1/routes/agent');
 const billingRoutes = require('./v1/routes/billing');
 
@@ -38,38 +37,22 @@ app.use(cors({
 }));
 
 // ====================== STRIPE WEBHOOK ======================
-// Must use raw body — register BEFORE express.json()
 app.post(
   '/api/v1/webhooks',
   express.raw({ type: 'application/json' }),
-  handleStripeWebhook  // ✅ from webhookController
+  handleStripeWebhook
 );
 
-// ====================== MPP SETUP ======================
-const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2026-03-25.preview',
+// ====================== MPP PAID ROUTE ======================
+const mppDataHandler = mppx.charge({
+  amount: '0.50',
+  currency: 'usd',
+  decimals: 2,
 });
 
-const mppx = Mppx.create({
-  secretKey: process.env.MPP_SECRET_KEY || process.env.STRIPE_SECRET_KEY,
-  methods: [
-    mppStripe.charge({
-      client: stripeClient,
-      networkId: process.env.STRIPE_PROFILE_ID,
-      paymentMethodTypes: ['card', 'link'],
-      decimals: 2,
-    }),
-  ],
-});
-
-// IMPORTANT: Register the paid route BEFORE express.json()
 app.post(
   '/api/v1/auth/mpp-data',
-  mppx.charge({
-    amount: '0.50',
-    currency: 'usd',
-    decimals: 2,
-  }),
+  mppDataHandler,
   (req, res) => {
     res.json({
       success: true,
@@ -93,44 +76,7 @@ app.get('/', (req, res) => {
 
 // ====================== OPENAPI DISCOVERY ======================
 app.get('/openapi.json', (req, res) => {
-  res.json({
-    openapi: '3.1.0',
-    info: {
-      title: 'Marketplace API',
-      version: '1.0.0',
-      description: 'Marketplace API with Machine Payments Protocol (MPP) support via Stripe',
-    },
-    paths: {
-      '/api/v1/auth/mpp-data': {
-        post: {
-          summary: 'MPP Paid Endpoint',
-          description: 'Requires payment of $0.50 via Machine Payments Protocol (Stripe)',
-          operationId: 'mppData',
-          tags: ['MPP'],
-          responses: {
-            '200': {
-              description: 'Payment successful',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      success: { type: 'boolean' },
-                      message: { type: 'string' },
-                      paymentDetails: { type: 'object' },
-                    },
-                  },
-                },
-              },
-            },
-            '402': {
-              description: 'Payment Required – returns WWW-Authenticate: Payment challenge',
-            },
-          },
-        },
-      },
-    },
-  });
+  res.json(getOpenApiSpec());
 });
 
 // ====================== ERROR HANDLER ======================
@@ -159,5 +105,8 @@ async function start() {
 }
 
 start();
+
+console.log('Stripe key mode:', process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ? 'TEST' : 'LIVE');
+console.log('Stripe Secret Key starts with:', process.env.STRIPE_SECRET_KEY?.substring(0, 8));
 
 module.exports = app;
