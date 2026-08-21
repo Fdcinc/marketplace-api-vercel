@@ -16,6 +16,7 @@ const authRoutes = require('./v1/routes/auth');
 const { handleStripeWebhook } = require('./v1/controllers/webhook');
 const agentRoutes = require('./v1/routes/agent');
 const billingRoutes = require('./v1/routes/billing');
+const mppRoutes = require('./v1/routes/mpp');
 
 const app = express();
 
@@ -43,24 +44,9 @@ app.post(
   handleStripeWebhook
 );
 
-// ====================== MPP PAID ROUTE ======================
-const mppDataHandler = mppx.charge({
-  amount: '0.50',
-  currency: 'usd',
-  decimals: 2,
-});
-
-app.post(
-  '/api/v1/auth/mpp-data',
-  mppDataHandler,
-  (req, res) => {
-    res.json({
-      success: true,
-      message: 'Machine payment verified! Premium marketplace payload delivered.',
-      paymentDetails: req.payment || {},
-    });
-  }
-);
+// ====================== MPP ROUTES ======================
+// Important: mount before express.json() if you want maximum header safety
+app.use('/api/v1/mpp', mppRoutes);
 
 // ====================== BODY PARSER ======================
 app.use(express.json());

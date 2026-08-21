@@ -11,9 +11,9 @@ const getOpenApiSpec = () => ({
     description: 'Marketplace API with Machine Payments Protocol (MPP) support via Stripe',
   },
   paths: {
-    '/api/v1/auth/mpp-data': {
+    '/api/v1/mpp/mpp-data': {
       post: {
-        summary: 'MPP Paid Endpoint',
+        summary: 'MPP Paid Data Endpoint',
         description: 'Requires payment of $0.50 via Machine Payments Protocol (Stripe)',
         operationId: 'mppData',
         tags: ['MPP'],
@@ -34,7 +34,36 @@ const getOpenApiSpec = () => ({
             },
           },
           '402': {
-            description: 'Payment Required – returns WWW-Authenticate payment challenge headers',
+            description: 'Payment Required – returns WWW-Authenticate: Payment challenge',
+          },
+        },
+      },
+    },
+    '/api/v1/mpp/premium': {
+      get: {
+        summary: 'MPP Premium Data Endpoint',
+        description: 'Requires payment of $0.25 via Machine Payments Protocol (Stripe)',
+        operationId: 'mppPremium',
+        tags: ['MPP'],
+        responses: {
+          '200': {
+            description: 'Payment successful – premium data returned',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    paymentDetails: { type: 'object' },
+                    data: { type: 'object' },
+                  },
+                },
+              },
+            },
+          },
+          '402': {
+            description: 'Payment Required – returns WWW-Authenticate: Payment challenge',
           },
         },
       },
