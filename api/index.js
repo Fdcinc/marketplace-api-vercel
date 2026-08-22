@@ -66,6 +66,45 @@ app.get('/openapi.json', (req, res) => {
   res.json(getOpenApiSpec());
 });
 
+// ====================== MPP DISCOVERY (ROOT LEVEL) ======================
+app.get('/.well-known/mpp', (req, res) => {
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  res.json({
+    service: 'Marketplace API',
+    version: '1.0.0',
+    description: 'Premium data and insights with MPP payment support',
+    endpoints: [
+      {
+        path: '/api/v1/mpp/mpp-data',
+        method: 'POST',
+        amount: '0.50',
+        currency: 'usd',
+        description: 'Premium marketplace data payload.',
+        paymentMethods: ['card', 'link', 'tempo'],
+        'x-agent-id': 'optional',
+      },
+      {
+        path: '/api/v1/mpp/premium',
+        method: 'GET',
+        amount: '0.25',
+        currency: 'usd',
+        description: 'Premium marketplace insights.',
+        paymentMethods: ['card', 'link', 'tempo'],
+        'x-agent-id': 'optional',
+      },
+    ],
+    mcp: {
+      url: `${baseUrl}/api/v1/mcp/tools`,
+      description: 'MCP tools for AI agents',
+    },
+    openapi: {
+      url: `${baseUrl}/openapi.json`,
+      description: 'OpenAPI spec for developers',
+    },
+  });
+});
+
+
 // ====================== ERROR HANDLER ======================
 app.use((err, req, res, next) => {
   console.error('🔥 Global Error:', err.stack);
