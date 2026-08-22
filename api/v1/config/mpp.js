@@ -1,16 +1,16 @@
 /**
  * @file v1/config/mpp.js
- * @description Centralized Machine Payments Protocol (MPP) initialization via Stripe.
+ * @description Centralized Machine Payments Protocol (MPP) initialization via Stripe + Tempo.
  */
-// ====================== MPP SETUP ======================
 
 const Stripe = require('stripe');
-const { Mppx, stripe: mppStripe } = require('mppx/express');
+const { Mppx, stripe: mppStripe, tempo } = require('mppx/express');
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2026-03-25.preview',
 });
 
+// ✅ Create the MPPX instance
 const mppx = Mppx.create({
   secretKey: process.env.MPP_SECRET_KEY || process.env.STRIPE_SECRET_KEY,
   methods: [
@@ -20,7 +20,15 @@ const mppx = Mppx.create({
       paymentMethodTypes: ['card', 'link'],
       decimals: 2,
     }),
+    tempo.charge({
+      currency: '0x20c0000000000000000000000000000000000000', // pathUSD on Tempo
+      recipient: process.env.TEMPO_RECIPIENT_ADDRESS,
+      testnet: process.env.NODE_ENV !== 'production',
+    }),
   ],
 });
 
-module.exports = { mppx };
+// ✅ Log what methods are available on mppx
+console.log('🔍 mppx methods:', Object.keys(mppx || {}));
+
+module.exports = { mppx, stripeClient };
