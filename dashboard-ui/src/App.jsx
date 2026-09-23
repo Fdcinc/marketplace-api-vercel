@@ -3,18 +3,19 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { useAuth0 } from '@auth0/auth0-react';
 import Login from './components/Login';
 import Dashboard from './pages/Dashboard';
+import Billing from './pages/Billing';
 import ApiKeys from './pages/ApiKeys';
 import Endpoints from './pages/Endpoints';
 import Sidebar from './components/Sidebar';
 
 const App = () => {
-  const { 
-    isAuthenticated: isAuth0Authenticated, 
-    logout, 
+  const {
+    isAuthenticated: isAuth0Authenticated,
+    logout,
     getAccessTokenSilently,
-    isLoading 
+    isLoading,
   } = useAuth0();
-  
+
   const [customToken, setCustomToken] = useState(localStorage.getItem('token'));
   const [auth0Token, setAuth0Token] = useState(null);
 
@@ -22,19 +23,21 @@ const App = () => {
   useEffect(() => {
     const fetchAuth0Token = async () => {
       if (isAuth0Authenticated) {
-        console.log("AUDIENCE BEING REQUESTED:", import.meta.env.VITE_AUTH0_AUDIENCE);
+        console.log(
+          'AUDIENCE BEING REQUESTED:',
+          import.meta.env.VITE_AUTH0_AUDIENCE
+        );
         try {
           const token = await getAccessTokenSilently({
             authorizationParams: {
               audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-              // ADD THIS: Request identity scopes explicitly
-              scope: "openid profile email" 
-            }
+              scope: 'openid profile email',
+            },
           });
           setAuth0Token(token);
           localStorage.setItem('auth_type', 'auth0');
         } catch (e) {
-          console.error("Auth0 token fetch failed:", e);
+          console.error('Auth0 token fetch failed:', e);
         }
       }
     };
@@ -72,13 +75,22 @@ const App = () => {
       ) : (
         <div style={styles.appContainer}>
           <Sidebar onLogout={handleLogout} />
-          
+
           <div style={styles.mainContent}>
             <Routes>
-              {/* Pass activeToken instead of customToken */}
-              <Route path="/dashboard" element={<Dashboard token={activeToken} />} />
+              <Route
+                path="/dashboard"
+                element={<Dashboard token={activeToken} />}
+              />
+              <Route
+                path="/billing"
+                element={<Billing token={activeToken} />}
+              />
               <Route path="/api-keys" element={<ApiKeys />} />
-              <Route path="/endpoints" element={<Endpoints token={activeToken} />} />
+              <Route
+                path="/endpoints"
+                element={<Endpoints token={activeToken} />}
+              />
               <Route path="*" element={<Navigate to="/dashboard" />} />
             </Routes>
           </div>

@@ -6,5 +6,6 @@ const { protect } = require('../middleware/authMiddleware'); // Assuming you hav
 router.post('/create-checkout-session', protect, billingController.createCheckoutSession);
 router.post('/create-portal-session', protect, billingController.createPortalSession);
 router.post('/add-credits', protect, billingController.addCredits);
+router.post('/switch-to-credits', protect, billingController.switchToCredits);
 
 module.exports = router;

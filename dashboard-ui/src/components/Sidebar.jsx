@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Zap, Home, Key, BookOpen, LogOut } from 'lucide-react';
+import { Zap, Home, Key, BookOpen, CreditCard, LogOut } from 'lucide-react';
 
 const Sidebar = ({ onLogout }) => {
   const navigate = useNavigate();
@@ -8,6 +8,7 @@ const Sidebar = ({ onLogout }) => {
 
   const menuItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
+    { path: '/billing', label: 'Billing', icon: CreditCard },
     { path: '/api-keys', label: 'API Keys', icon: Key },
     { path: '/endpoints', label: 'Endpoints', icon: BookOpen },
   ];
@@ -64,7 +65,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-    padding: '0 24px',
+    padding: '24px 24px 0',
     marginBottom: '40px',
   },
   title: {

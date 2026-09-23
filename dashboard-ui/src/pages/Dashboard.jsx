@@ -1,21 +1,30 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Activity, CreditCard, RefreshCw, RotateCcw } from 'lucide-react';
+import { Activity, CreditCard, RefreshCw, RotateCcw, Wallet } from 'lucide-react';
 import { BillingChat } from '../components/BillingChat';
+import { useNavigate } from 'react-router-dom';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:5000';
 
 const Dashboard = ({ token }) => {
-  const [usageData, setUsageData] = useState({ quantity: 0, amount_due: 0, period_end: '--' });
+  const navigate = useNavigate();
+  const [usageData, setUsageData] = useState({
+    quantity: 0,
+    amount_due: 0,
+    period_end: '--',
+    credits: 0,
+    isTrial: true,
+    trialRemaining: 0,
+    trialLimit: 1000,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Memoized header builder
   const getHeaders = useCallback(() => {
     const authType = localStorage.getItem('auth_type');
     const headers = {
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
       'x-platform-secret': 'my-marketplace-private-key-123',
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     };
     if (authType === 'auth0') {
       headers['x-auth-source'] = 'auth0';
@@ -23,45 +32,46 @@ const Dashboard = ({ token }) => {
     return headers;
   }, [token]);
 
-  // Fetch logic with encapsulated state management
-  const fetchUsage = useCallback(async (showLoading = true) => {
-    if (!token) {
-      setError("No authentication token found. Please login again.");
-      setLoading(false);
-      return;
-    }
-
-    if (showLoading) setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/auth/usage`, {
-        method: 'GET',
-        headers: getHeaders()
-      });
-
-      if (response.status === 401) throw new Error("Unauthorized: Please check your login session.");
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
-
-      const json = await response.json();
-      if (json.success) {
-        setUsageData(json.data);
-      } else {
-        setError(json.error || 'Failed to load data');
+  const fetchUsage = useCallback(
+    async (showLoading = true) => {
+      if (!token) {
+        setError('No authentication token found. Please login again.');
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      setError(err.message || 'Could not connect to backend.');
-    } finally {
-      setLoading(false);
-    }
-  }, [token, getHeaders]);
 
-  // Trigger fetch with a 500ms delay to ensure stable UI mounting
+      if (showLoading) setLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/auth/usage`, {
+          method: 'GET',
+          headers: getHeaders(),
+        });
+
+        if (response.status === 401)
+          throw new Error('Unauthorized: Please check your login session.');
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+        const json = await response.json();
+        if (json.success) {
+          setUsageData(json.data);
+        } else {
+          setError(json.error || 'Failed to load data');
+        }
+      } catch (err) {
+        setError(err.message || 'Could not connect to backend.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token, getHeaders]
+  );
+
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchUsage(true);
     }, 500);
-
     return () => clearTimeout(timer);
   }, [fetchUsage]);
 
@@ -71,12 +81,12 @@ const Dashboard = ({ token }) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/reset-usage`, {
         method: 'POST',
-        headers: getHeaders()
+        headers: getHeaders(),
       });
 
       const json = await response.json();
       if (json.success) {
-        alert(`✅ Usage reset successfully!`);
+        alert('✅ Usage reset successfully!');
         fetchUsage(false);
       } else {
         alert(json.error || 'Failed to reset usage');
@@ -86,7 +96,12 @@ const Dashboard = ({ token }) => {
       alert('Error resetting usage.');
     }
   };
- return (
+
+  // Determine primary balance view: trial still active vs switched to credits
+  const isOnCredits =
+    !usageData.isTrial || (usageData.trialRemaining ?? 0) <= 0;
+
+  return (
     <div>
       <div style={styles.header}>
         <div>
@@ -98,25 +113,52 @@ const Dashboard = ({ token }) => {
       {error && <div style={styles.errorBanner}>{error}</div>}
 
       <div style={styles.grid}>
-        {/* Trial Status Card */}
-        {usageData.isTrial && (
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
+        {/* Primary balance: Trial OR Credit Balance */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            {isOnCredits ? (
+              <Wallet size={24} color="#4f46e5" />
+            ) : (
               <Activity size={24} color="#f59e0b" />
-              <span>Trial Status</span>
-            </div>
-            <h2 style={styles.stat}>
-              {loading ? '...' : usageData.trialRemaining}
-            </h2>
-            <p style={styles.subtext}>Requests remaining of {usageData.trialLimit}</p>
-            <div style={styles.progressContainer}>
-              <div style={{ 
-                ...styles.progressBar, 
-                width: `${Math.min(100, ((usageData.trialLimit - usageData.trialRemaining) / usageData.trialLimit) * 100)}%` 
-              }}></div>
-            </div>
+            )}
+            <span>{isOnCredits ? 'Credit Balance' : 'Trial Status'}</span>
           </div>
-        )}
+          <h2 style={styles.stat}>
+            {loading
+              ? '...'
+              : isOnCredits
+              ? (usageData.credits || 0).toLocaleString()
+              : (usageData.trialRemaining || 0).toLocaleString()}
+          </h2>
+          <p style={styles.subtext}>
+            {isOnCredits
+              ? 'API requests remaining'
+              : `Requests remaining of ${usageData.trialLimit || 1000}`}
+          </p>
+          {!isOnCredits && (
+            <div style={styles.progressContainer}>
+              <div
+                style={{
+                  ...styles.progressBar,
+                  width: `${Math.min(
+                    100,
+                    ((usageData.trialLimit - usageData.trialRemaining) /
+                      (usageData.trialLimit || 1)) *
+                      100
+                  )}%`,
+                }}
+              />
+            </div>
+          )}
+          {isOnCredits && (usageData.credits || 0) <= 0 && (
+            <button
+              onClick={() => navigate('/billing')}
+              style={styles.topUpBtn}
+            >
+              Top up credits →
+            </button>
+          )}
+        </div>
 
         <div style={styles.card}>
           <div style={styles.cardHeader}>
@@ -135,14 +177,20 @@ const Dashboard = ({ token }) => {
             <span>Accrued Cost</span>
           </div>
           <h2 style={styles.stat}>
-            {loading ? '...' : `€${(usageData.amount_due || 0).toFixed(2)}`}
+            {loading
+              ? '...'
+              : `€${(usageData.amount_due || 0).toFixed(2)}`}
           </h2>
           <p style={styles.subtext}>Next invoice: {usageData.period_end}</p>
         </div>
       </div>
 
       <div style={styles.buttonGroup}>
-        <button onClick={() => fetchUsage(true)} disabled={loading} style={styles.refreshButton}>
+        <button
+          onClick={() => fetchUsage(true)}
+          disabled={loading}
+          style={styles.refreshButton}
+        >
           <RefreshCw size={18} style={{ marginRight: '8px' }} />
           {loading ? 'Refreshing...' : 'Refresh Data'}
         </button>
@@ -150,6 +198,14 @@ const Dashboard = ({ token }) => {
         <button onClick={resetUsage} style={styles.resetButton}>
           <RotateCcw size={18} style={{ marginRight: '8px' }} />
           Reset Usage (Dev)
+        </button>
+
+        <button
+          onClick={() => navigate('/billing')}
+          style={styles.billingButton}
+        >
+          <CreditCard size={18} style={{ marginRight: '8px' }} />
+          Go to Billing
         </button>
       </div>
 
@@ -162,19 +218,110 @@ const Dashboard = ({ token }) => {
 
 const styles = {
   header: { marginBottom: '40px' },
-  pageTitle: { fontSize: '32px', fontWeight: '700', color: '#1f2937', margin: '0 0 8px 0' },
+  pageTitle: {
+    fontSize: '32px',
+    fontWeight: '700',
+    color: '#1f2937',
+    margin: '0 0 8px 0',
+  },
   subtitle: { color: '#6b7280', fontSize: '16px', margin: 0 },
-  errorBanner: { backgroundColor: '#fef2f2', color: '#dc2626', padding: '14px 20px', borderRadius: '10px', marginBottom: '24px', border: '1px solid #fecaca' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '24px', marginBottom: '40px' },
-  card: { backgroundColor: '#ffffff', padding: '32px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', border: '1px solid #e5e7eb' },
-  cardHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', color: '#4b5563', fontWeight: '600' },
-  stat: { margin: '0 0 8px 0', fontSize: '48px', fontWeight: '700', color: '#1f2937' },
+  errorBanner: {
+    backgroundColor: '#fef2f2',
+    color: '#dc2626',
+    padding: '14px 20px',
+    borderRadius: '10px',
+    marginBottom: '24px',
+    border: '1px solid #fecaca',
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+    gap: '24px',
+    marginBottom: '40px',
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    padding: '32px',
+    borderRadius: '16px',
+    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+    border: '1px solid #e5e7eb',
+  },
+  cardHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '20px',
+    color: '#4b5563',
+    fontWeight: '600',
+  },
+  stat: {
+    margin: '0 0 8px 0',
+    fontSize: '48px',
+    fontWeight: '700',
+    color: '#1f2937',
+  },
   subtext: { color: '#6b7280', margin: 0, fontSize: '15px' },
   buttonGroup: { display: 'flex', gap: '12px', flexWrap: 'wrap' },
-  refreshButton: { display: 'flex', alignItems: 'center', padding: '14px 24px', backgroundColor: '#4f46e5', color: 'white', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' },
-  resetButton: { display: 'flex', alignItems: 'center', padding: '14px 24px', backgroundColor: '#f59e0b', color: 'white', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' },
-  progressContainer: { width: '100%', backgroundColor: '#e5e7eb', borderRadius: '10px', height: '10px', marginTop: '20px', overflow: 'hidden' },
-  progressBar: { backgroundColor: '#f59e0b', height: '100%', transition: 'width 0.5s ease-in-out' }
+  refreshButton: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '14px 24px',
+    backgroundColor: '#4f46e5',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  resetButton: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '14px 24px',
+    backgroundColor: '#f59e0b',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  billingButton: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '14px 24px',
+    backgroundColor: '#1f2937',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  topUpBtn: {
+    marginTop: 16,
+    padding: '10px 16px',
+    backgroundColor: '#4f46e5',
+    color: 'white',
+    border: 'none',
+    borderRadius: 8,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontSize: 14,
+  },
+  progressContainer: {
+    width: '100%',
+    backgroundColor: '#e5e7eb',
+    borderRadius: '10px',
+    height: '10px',
+    marginTop: '20px',
+    overflow: 'hidden',
+  },
+  progressBar: {
+    backgroundColor: '#f59e0b',
+    height: '100%',
+    transition: 'width 0.5s ease-in-out',
+  },
 };
 
 export default Dashboard;
