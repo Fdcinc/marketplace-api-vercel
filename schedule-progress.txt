@@ -42,3 +42,12 @@ This is what the user sees when they log in to your website.
 Why you need it: Customers hate "bill shock." They want to see their usage in real-time before the invoice arrives at the end of the month.
 
 The Logic: You create a React or Vue dashboard that calls your /api/v1/auth/me route. You can even fetch the "Upcoming Invoice" from Stripe's API to show the user exactly how much they owe so far this month.
+
+# Test mode
+stripe listen --forward-to localhost:5000/api/v1/webhooks --project-name "fdc sandbox"
+
+# Force a test event (optional)
+stripe trigger checkout.session.completed --project-name "fdc sandbox"
+
+# Check which account the CLI is using
+stripe config --list

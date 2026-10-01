@@ -1,81 +1,110 @@
 /**
  * @file middleware/trackUsage.js
  * @description Metering middleware: trial quota → credits → 402.
+ * Atomic version using aggregation pipeline.
  * Assumes MongoDB is already connected and protect has set req.user.
- *
- * Usage:
- *   router.post('/chat', protect, trackUsage, controller.handler);
  */
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/users');
 
-/** Routes that never consume trial/credits */
 const FREE_ROUTES = new Set(['/api/v1/auth/me', '/api/v1/auth/usage']);
 
-/**
- * trackUsage middleware
- * 1. Skip free routes
- * 2. Trial path: increment trialRequestsUsed while under limit
- * 3. Paid path: block if credits <= 0, else decrement credits + report to Stripe
- */
 async function trackUsage(req, res, next) {
-  console.log('DEBUG: trackUsage middleware running for route', req.originalUrl);
+  if (FREE_ROUTES.has(req.originalUrl) || !req.user) return next();
+
+  const userId = req.user.id || req.user._id;
 
   try {
-    if (FREE_ROUTES.has(req.originalUrl)) return next();
-    if (!req.user) return next();
+    // Atomic update with aggregation pipeline
+    const updated = await User.findOneAndUpdate(
+      { _id: userId },                     // simple filter
+      [
+        {
+          $set: {
+            // 1. Increment trial counter only while still on trial and under limit
+            trialRequestsUsed: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$isTrial', true] },
+                    { $lt: ['$trialRequestsUsed', '$trialLimit'] },
+                  ],
+                },
+                { $add: ['$trialRequestsUsed', 1] },
+                '$trialRequestsUsed',
+              ],
+            },
 
-    const userId = req.user.id || req.user._id;
-    const user = await User.findById(userId);
-    if (!user) return next();
+            // 2. Turn trial off when the limit is reached
+            isTrial: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$isTrial', true] },
+                    { $gte: [{ $add: ['$trialRequestsUsed', 1] }, '$trialLimit'] },
+                  ],
+                },
+                false,
+                '$isTrial',
+              ],
+            },
 
-    // ── Trial path ──────────────────────────────────────────
-    if (user.isTrial) {
-      if (user.trialRequestsUsed < user.trialLimit) {
-        await User.findByIdAndUpdate(user._id, {
-          $inc: { trialRequestsUsed: 1 },
-        });
-        console.log(
-          `✅ Trial usage for ${user.email}: ${user.trialRequestsUsed + 1}/${user.trialLimit}`
-        );
-        return next();
+            // 3. Decrement credits only when NOT on trial
+            credits: {
+              $cond: [
+                { $eq: ['$isTrial', true] },
+                '$credits',
+                { $max: [0, { $subtract: ['$credits', 1] }] },
+              ],
+            },
+
+            currentUsage: { $add: ['$currentUsage', 1] },
+            usageLastUpdated: new Date(),
+          },
+        },
+      ],
+      {
+        returnDocument: 'after',
+        updatePipeline: true,          // ← required when update is an array
       }
-      // Trial exhausted → move to paid path
-      await User.findByIdAndUpdate(user._id, { isTrial: false });
+    );
+
+    if (!updated) {
+      return res.status(402).json({
+        success: false,
+        error: 'User not found or insufficient credits / trial exhausted.',
+      });
     }
 
-    // ── Paid guardrail ──────────────────────────────────────
-    if ((user.credits || 0) <= 0) {
-      console.log(`🚫 Blocked: ${user.email} has no credits.`);
+    // Extra safety check after the update
+    if (!updated.isTrial && (updated.credits || 0) <= 0) {
       return res.status(402).json({
         success: false,
         error: 'Insufficient credits. Please top up.',
       });
     }
 
-    // ── Stripe meter event (fire-and-forget) ────────────────
-    if (user.stripeCustomerId) {
+    // Fire-and-forget Stripe meter event
+    if (updated.stripeCustomerId) {
       stripe.billing.meterEvents
         .create({
           event_name: 'api_request',
           payload: {
-            stripe_customer_id: user.stripeCustomerId,
+            stripe_customer_id: updated.stripeCustomerId,
             value: '1',
           },
         })
-        .catch((e) => console.error('❌ Stripe Ingestion Error:', e.message));
+        .catch((e) => console.error('❌ Stripe meter error:', e.message));
     }
 
-    // ── Local credit / usage decrement ──────────────────────
-    await User.findByIdAndUpdate(user._id, {
-      $inc: { credits: -1, currentUsage: 1 },
-    });
+    // Attach useful info for controllers
+    req.creditsRemaining = updated.credits;
+    req.isTrial = updated.isTrial;
 
     next();
   } catch (err) {
     console.error('❌ TrackUsage Error:', err.message);
-    // Fail open so a metering bug does not take the API offline
-    next();
+    next(); // fail open
   }
 }
 
