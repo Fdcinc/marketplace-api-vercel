@@ -27,7 +27,7 @@ const mppx = Mppx.create({
       currency: PATH_USD, // pathUSD on Tempo
       decimals: 6,
       recipient: process.env.TEMPO_RECIPIENT_ADDRESS,
-      testnet: process.env.NODE_ENV !== 'production',
+      testnet: false,
     }),
   ],
 });
