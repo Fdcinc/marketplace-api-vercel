@@ -17,29 +17,16 @@ const UserSchema = new mongoose.Schema({
     select: false 
   },
 
-  isTrial: { 
-    type: Boolean,
-    default: true 
-  },
+  // ──── TRIAL ────
+  isTrial: { type: Boolean, default: true },
+  trialRequestsUsed: { type: Number, default: 0, min: 0},
+  trialLimit: { type: Number, default: 1000, min: 0 },
 
-  trialRequestsUsed: {
-    type: Number,
-    default: 0,
-  },
-
-  trialLimit: {
-    type: Number,
-    default: 1000,
-  },
-
-  credits: {
-    type: Number,
-    default: 0,
-  },
+   // ──── CREDITS (single definition) ────
+  credits: { type: Number, default: 0, min: 0},
   
   // ──── MARKETPLACE DATA ────
-  interestedCategoryIds: [{ 
-    type: mongoose.Schema.Types.ObjectId, 
+  interestedCategoryIds: [{ type: mongoose.Schema.Types.ObjectId, 
     ref: 'Category' 
   }],
   addresses: { 
@@ -52,6 +39,7 @@ const UserSchema = new mongoose.Schema({
   twoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String, select: false },
   recoveryCodes: { type: [String], select: false },
+  auth0Id: { type: String, sparse: true, unique: true },
   
   // ──── ACCOUNT STATUS & ROLES ────
   status: { 
@@ -67,28 +55,11 @@ const UserSchema = new mongoose.Schema({
   },
 
   // ──── BILLING & METERING ────
-  stripeCustomerId: { 
-    type: String, 
-    unique: true, 
-    sparse: true 
-  },
+  stripeCustomerId: { type: String, unique: true, sparse: true },
   stripeSubscriptionId: { type: String },
-  
-  currentUsage: { 
-    type: Number, 
-    default: 0,
-    min: 0 
-  },
-  usageLastUpdated: { 
-    type: Date, 
-    default: Date.now 
-  },
-  apiKey: { 
-    type: String, 
-    unique: true, 
-    sparse: true,
-    select: false 
-  },
+  currentUsage: { type: Number, default: 0, min: 0 },
+  usageLastUpdated: { type: Date, default: Date.now },
+  apiKey: { type: String, unique: true, sparse: true, select: false },
   
   // ──── AUDIT & RECOVERY ────
   schemaVersion: { type: Number, default: 2, min: 1 },
@@ -111,22 +82,12 @@ const UserSchema = new mongoose.Schema({
 UserSchema.pre('save', async function () {
   // 1. Only hash if password was modified
   if (!this.isModified('passwordHash')) return;
-
-  try {
-    // 2. Skip if it's already a bcrypt hash (safety check)
-    if (/^\$2[ayb]\$.{56}$/.test(this.passwordHash)) return;
-
-    // 3. Hash the password
-    const salt = await bcrypt.genSalt(12);
-    this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
-    
-    // In async hooks, you don't need next(), 
-    // just let the function finish.
-  } catch (err) {
-    throw new Error(`Encryption failed: ${err.message}`);
-  }
+  // 2. Skip if it's already a bcrypt hash (safety check)
+  if (/^\$2[ayb]\$.{56}$/.test(this.passwordHash)) return;
+  // 3. Hash the password
+  const salt = await bcrypt.genSalt(12);
+  this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
 });
-
 /**
  * VIRTUALS
  * This makes the frontend happy by providing 'id' instead of just '_id'

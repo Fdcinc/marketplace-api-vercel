@@ -7,7 +7,11 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/users');
 
-const FREE_ROUTES = new Set(['/api/v1/auth/me', '/api/v1/auth/usage']);
+const FREE_ROUTES = new Set([
+  '/api/v1/auth/me', 
+  '/api/v1/auth/usage',
+  '/api/v1/mcp/tools',
+]);
 
 async function trackUsage(req, res, next) {
   if (FREE_ROUTES.has(req.originalUrl) || !req.user) return next();

@@ -10,7 +10,9 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/users');
 
-// 1. Create a Checkout Session to buy "Credit Packs" (Pay-as-you-go)
+/**
+ * Create a Checkout Session to buy "Credit Packs" (Pay-as-you-go)
+ */
 exports.createCheckoutSession = async (req, res) => {
   try {
     const user = await User.findById(req.user.id || req.user._id);
@@ -20,8 +22,8 @@ exports.createCheckoutSession = async (req, res) => {
         .json({ success: false, error: 'User not linked to Stripe' });
     }
 
-    const creditAmount = Number(req.body.credits);
-    const unitAmount = Number(req.body.amount);
+    const creditAmount = Number(req.body.credits) || 1000;
+    const unitAmount = Number(req.body.amount) || Number(req.body.amountCents) || 1000;
 
     if (!Number.isInteger(creditAmount) || creditAmount <= 0) {
       return res.status(400).json({
@@ -87,7 +89,9 @@ exports.createCheckoutSession = async (req, res) => {
   }
 };
 
-// 2. Create a Portal Session
+/**
+ * Create a Portal Session
+ */
 exports.createPortalSession = async (req, res) => {
   try {
     const user = await User.findById(req.user.id || req.user._id);
@@ -113,7 +117,9 @@ exports.createPortalSession = async (req, res) => {
   }
 };
 
-// 3. Admin/Dev endpoint to manually add credits
+/**
+ * Admin/Dev endpoint to manually add credits
+ */
 exports.addCredits = async (req, res) => {
   try {
     if (process.env.NODE_ENV === 'production' && req.user.role !== 'admin') {
@@ -150,64 +156,65 @@ exports.addCredits = async (req, res) => {
 };
 
 /**
- * 4. Switch from trial to credit balance BEFORE trial ends.
- *
+ * Switch from trial to credit balance BEFORE trial ends.
  * - Sets isTrial = false
- * - Converts remaining trial requests into credits (so free quota is not lost)
+ * - Converts remaining trial requests into credits
  * - Idempotent: if already off trial, returns current state
+ *
+ * Can be called as Express handler or as pure function:
+ *   const result = await switchToCredits(userId)
  */
+async function switchToCredits(userId) {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  if (!user.isTrial) {
+    return {
+      alreadySwitched: true,
+      credits: user.credits || 0,
+      isTrial: false,
+      message: 'Already on credit balance',
+    };
+  }
+
+  const trialLimit = user.trialLimit ?? 1000;
+  const trialUsed = user.trialRequestsUsed ?? 0;
+  const remaining = Math.max(0, trialLimit - trialUsed);
+
+  const updated = await User.findByIdAndUpdate(
+    userId,
+    {
+      isTrial: false,
+      $inc: { credits: remaining },
+      trialRequestsUsed: trialLimit,
+    },
+    { returnDocument: 'after' }
+  ).select('-passwordHash');
+
+  return {
+    alreadySwitched: false,
+    creditsAdded: remaining,
+    credits: updated.credits,
+    isTrial: false,
+    message:
+      remaining > 0
+        ? `Trial ended. ${remaining.toLocaleString()} remaining trial requests were added to your credit balance.`
+        : 'Trial ended. You are now on credit balance.',
+  };
+}
+
 exports.switchToCredits = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    // Already on credits
-    if (!user.isTrial) {
-      return res.json({
-        success: true,
-        message: 'Already on credit balance',
-        alreadySwitched: true,
-        credits: user.credits || 0,
-        isTrial: false,
-      });
-    }
-
-    const trialLimit = user.trialLimit ?? 1000;
-    const trialUsed = user.trialRequestsUsed ?? 0;
-    const remaining = Math.max(0, trialLimit - trialUsed);
-
-    // Convert leftover trial into credits, then end trial
-    const updated = await User.findByIdAndUpdate(
-      userId,
-      {
-        isTrial: false,
-        $inc: { credits: remaining },
-        // Optional: zero out trial counters for clarity
-        trialRequestsUsed: trialLimit,
-      },
-      { returnDocument: 'after' }
-    ).select('-passwordHash');
-
-    console.log(
-      `🔄 User ${updated.email} switched to credits early. +${remaining} credits → balance ${updated.credits}`
-    );
-
-    res.json({
-      success: true,
-      message:
-        remaining > 0
-          ? `Trial ended. ${remaining.toLocaleString()} remaining trial requests were added to your credit balance.`
-          : 'Trial ended. You are now on credit balance.',
-      creditsAdded: remaining,
-      credits: updated.credits,
-      isTrial: false,
-    });
+    const result = await switchToCredits(userId);
+    res.json({ success: true, ...result });
   } catch (err) {
     console.error('Switch to Credits Error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+// Pure function export for MCP / agentController reuse
+exports.switchToCreditsFn = switchToCredits;

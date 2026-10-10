@@ -20,9 +20,9 @@ const checkAuth0Jwt = auth({
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}/`,
 });
 
-const userInfoClient = new UserInfoClient({
-  domain: process.env.AUTH0_DOMAIN,
-});
+const userInfoClient = process.env.AUTH0_DOMAIN
+  ? new UserInfoClient({ domain: process.env.AUTH0_DOMAIN })
+  : null;
 
 /**
  * Production-grade rate limiter for authentication endpoints.
@@ -46,8 +46,7 @@ exports.authLimiter = authRateLimiter;
  */
 const verifyGateway = (req, res, next) => {
   const gatewaySecret = req.headers['x-platform-secret'];
-  const expectedSecret =
-    process.env.GATEWAY_SECRET || 'my-marketplace-private-key-123';
+  const expectedSecret = process.env.GATEWAY_SECRET || 'my-marketplace-private-key-123';
 
   if (!gatewaySecret || gatewaySecret !== expectedSecret) {
     console.warn('❌ Gateway Secret Mismatch');
@@ -80,14 +79,15 @@ exports.restrictTo = restrictTo;
 
 /**
  * Consolidated primary protection middleware handling Auth0 (with JIT) and local JWTs.
+ * Always sets req.user = full User document (passwordHash excluded).
+ * Compatible with both req.user.id and req.user._id
  */
 exports.protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res
-        .status(401)
-        .json({ success: false, error: 'No token provided' });
+      return res.status(401).json({ success: false, error: 'No token provided' 
+      });
     }
 
     const token = authHeader.split(' ')[1];
@@ -99,9 +99,9 @@ exports.protect = async (req, res, next) => {
       return checkAuth0Jwt(req, res, async (err) => {
         if (err) {
           console.error('Auth0 JWT Validation Failed:', err.message);
-          return res
-            .status(401)
-            .json({ success: false, error: 'Invalid Auth0 Token' });
+          return res.status(401).json({ success: false, error: 'Invalid Auth0 Token' 
+
+          });
         }
 
         try {
@@ -109,7 +109,8 @@ exports.protect = async (req, res, next) => {
           let email =
             payload['https://api.marketplace.com/email'] ||
             payload.email ||
-            (await userInfoClient.getUserInfo(token).catch(() => ({}))).email;
+            (userInfoClient
+            ? (await userInfoClient.getUserInfo(token).catch(() => ({}))).email : null);
 
           if (!email) {
             throw new Error('No email found in token payload or user info');
@@ -124,6 +125,7 @@ exports.protect = async (req, res, next) => {
               email: normalizedEmail,
               name: payload.name || 'Auth0 User',
               passwordHash: 'AUTH0_MANAGED',
+              auth0Id: payload.sub,
             });
             await ensureStripeCustomer(user);
           }
@@ -132,42 +134,42 @@ exports.protect = async (req, res, next) => {
           next();
         } catch (e) {
           console.error('Auth0 Processing Error:', e.message);
-          return res
-            .status(500)
-            .json({ success: false, error: 'Auth0 processing failed' });
+          return res.status(500).json({ success: false, error: 'Auth0 processing failed' 
+          });
         }
       });
     }
 
     // --- LOCAL JWT FLOW ---
     try {
-      const { success, decoded, error } = verifyToken(token);
-      if (!success) {
-        console.error('Local JWT Error:', error);
-        return res
-          .status(401)
-          .json({ success: false, error: 'Invalid local token' });
+      let decoded;
+      if (typeof verifyToken === 'function') {
+        const result = verifyToken(token);
+        if (!result.success) {
+          return res.status(401).json({ success: false, error: 'Invalid local token' 
+
+          });
+        }
+        decoded = result.decoded;
+      } else {
+        decoded = jwt.verify(token, process.env.JWT_SECRET);
       }
 
       const user = await User.findById(decoded.id).select('-passwordHash');
       if (!user) {
-        return res
-          .status(401)
-          .json({ success: false, error: 'User does not exist' });
+        return res.status(401).json({ success: false, error: 'User does not exist' 
+        });
       }
 
-      req.user = user;
+      req.user = user; // full document
       next();
     } catch (innerErr) {
       console.error('Local JWT Execution Error:', innerErr.message);
-      return res
-        .status(401)
-        .json({ success: false, error: 'Invalid local token processing' });
+      return res.status(401).json({ success: false, error: 'Invalid local token processing' 
+      });
     }
   } catch (err) {
     console.error('Global Middleware Catch:', err.message);
-    res
-      .status(500)
-      .json({ success: false, error: 'Authentication service failure' });
+    res.status(500).json({ success: false, error: 'Authentication service failure' });
   }
 };
