@@ -10,6 +10,8 @@ const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2026-03-25.preview',
 });
 
+const PATH_USD = '0x20c0000000000000000000000000000000000000';
+
 // ✅ Create the MPPX instance
 const mppx = Mppx.create({
   secretKey: process.env.MPP_SECRET_KEY || process.env.STRIPE_SECRET_KEY,
@@ -20,8 +22,10 @@ const mppx = Mppx.create({
       paymentMethodTypes: ['card', 'link'],
       decimals: 2,
     }),
+
     tempo.charge({
-      currency: '0x20c0000000000000000000000000000000000000', // pathUSD on Tempo
+      currency: PATH_USD, // pathUSD on Tempo
+      decimals: 6,
       recipient: process.env.TEMPO_RECIPIENT_ADDRESS,
       testnet: process.env.NODE_ENV !== 'production',
     }),
