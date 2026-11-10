@@ -11,13 +11,31 @@ const User = require('../models/users');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { protect } = require('../middleware/authMiddleware');
 const { switchToCreditsFn } = require('../controllers/billingController');
+const { services } = require('./catalog'); // ✅ Imported dynamic catalog
 
 // ────────────────────────────────────────────────
 // GET /api/v1/mcp/tools  – discovery
 // ────────────────────────────────────────────────
 router.get('/tools', (req, res) => {
+  // 1. Map dynamic catalog services to MCP tools
+  const catalogTools = services.map(s => ({
+    name: s.path.replace('/', '').replace(/-/g, '_'),
+    description: s.description,
+    inputSchema: s.inputSchema || { type: 'object', properties: {}, required: [] },
+    payment: {
+      amount: s.price,
+      currency: 'usd',
+      endpoint: `/api/v1/catalog${s.path}`,
+      method: s.method.toUpperCase(),
+    },
+  }));
+
+  // 2. Combine dynamic catalog tools with core system tools
   res.json({
     tools: [
+      ...catalogTools, // ✅ Inject the new catalog tools here
+      
+      // --- Core Tools ---
       {
         name: 'get_mpp_data',
         description:
@@ -108,6 +126,33 @@ router.post('/call', protect, async (req, res) => {
   const userId = args.userId || req.user.id || req.user._id?.toString();
 
   try {
+    // ────────────────────────────────────────────────
+    // 1. Handle Dynamic Catalog Tools
+    // ────────────────────────────────────────────────
+    const catalogTool = services.find(
+      s => s.path.replace('/', '').replace(/-/g, '_') === name
+    );
+
+    if (catalogTool) {
+      // Agents cannot execute paid catalog tools via POST /call because
+      // there is no HTTP 402 challenge triggered here. They must use the REST endpoint.
+      return res.json({
+        content: [
+          {
+            type: 'text',
+            text: `This tool requires payment via HTTP. Please call ${catalogTool.method.toUpperCase()} /api/v1/catalog${catalogTool.path} to handle the 402 Payment Required flow.`,
+          },
+        ],
+        paymentRequired: true,
+        endpoint: `/api/v1/catalog${catalogTool.path}`,
+        method: catalogTool.method.toUpperCase(),
+        amount: catalogTool.price,
+      });
+    }
+
+    // ────────────────────────────────────────────────
+    // 2. Handle Core System & Billing Tools
+    // ────────────────────────────────────────────────
     if (name === 'get_billing_status') {
       const user = await User.findById(userId).select('-passwordHash');
       if (!user) {
@@ -216,6 +261,7 @@ router.post('/call', protect, async (req, res) => {
       });
     }
 
+    // Legacy MPP tools
     if (['get_mpp_data', 'get_premium_data'].includes(name)) {
       return res.json({
         content: [
@@ -228,6 +274,7 @@ router.post('/call', protect, async (req, res) => {
       });
     }
 
+    // Fallback for unknown tools
     res.status(404).json({
       content: [{ type: 'text', text: `Unknown tool: ${name}` }],
       isError: true,
